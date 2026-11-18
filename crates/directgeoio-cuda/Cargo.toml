@@ -1,0 +1,10 @@
+[package]
+name = "directgeoio-cuda"
+description = "NVIDIA backend for DirectGeoIO: cuFile GPUDirect Storage (with pinned-host fallback) + CUDA decoders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+directgeoio-core = { path = "../directgeoio-core" }

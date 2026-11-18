@@ -1,0 +1,9 @@
+DirectGeoIO
+Copyright 2026 Giuseppe Gambino
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Test data fetched by tools/fetch_fixtures.py (not redistributed in this repository):
+  * NOAA Global Forecast System (GFS) output, NOAA Open Data Dissemination on AWS — public domain.
+  * ECMWF Open Data (IFS), Copyright ECMWF, licensed under CC BY 4.0 —
+    https://www.ecmwf.int/en/forecasts/datasets/open-data

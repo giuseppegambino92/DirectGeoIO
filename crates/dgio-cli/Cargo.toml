@@ -1,0 +1,16 @@
+[package]
+name = "dgio-cli"
+description = "DirectGeoIO command-line tool: inspect, decode, verify and benchmark GRIB2 files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dgio"
+path = "src/main.rs"
+
+[dependencies]
+directgeoio-core = { path = "../directgeoio-core" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+directgeoio-metal = { path = "../directgeoio-metal" }

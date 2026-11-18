@@ -1,0 +1,8 @@
+[package]
+name = "directgeoio-core"
+description = "Zero-allocation GRIB2 section parser, CPU reference decoders and GPU decode planner for DirectGeoIO"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

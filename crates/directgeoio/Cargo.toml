@@ -1,0 +1,21 @@
+[package]
+name = "directgeoio"
+description = "DirectGeoIO: zero-copy NVMe-to-GPU GRIB2 decoding (C ABI, DLPack, backend selection)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "directgeoio"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = []
+cuda = ["dep:directgeoio-cuda"]
+
+[dependencies]
+directgeoio-core = { path = "../directgeoio-core" }
+directgeoio-cuda = { path = "../directgeoio-cuda", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+directgeoio-metal = { path = "../directgeoio-metal" }

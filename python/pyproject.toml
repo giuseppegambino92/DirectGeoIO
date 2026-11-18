@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "directgeoio"
+version = "0.1.0"
+description = "Zero-copy NVMe-to-GPU GRIB2 decoding (Metal / CUDA) with DLPack export"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+readme = "../README.md"
+
+[tool.setuptools.packages.find]
+include = ["directgeoio*"]
+
+[tool.setuptools.package-data]
+directgeoio = ["*.dylib", "*.so"]

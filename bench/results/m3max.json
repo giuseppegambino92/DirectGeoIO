@@ -1,0 +1,317 @@
+{
+ "chip": "Apple M3 Max",
+ "cpus": 14,
+ "perf_cores": 10,
+ "rows": [
+  {
+   "backend": "ecCodes st",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 1,
+   "total_s": 0.022625,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 1,
+   "total_s": 0.021415,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x10",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 10,
+   "total_s": 0.008972,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x14",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 14,
+   "total_s": 0.008864,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "metal (Apple M3 Max)",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.002299,
+   "plan_s": 0.000128,
+   "io_s": 0.001154,
+   "compute_s": 0.000949,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.013084,
+   "plan_s": 0.00012,
+   "io_s": 0.001924,
+   "compute_s": 0.011039,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x14",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.005403,
+   "plan_s": 0.000136,
+   "io_s": 0.002033,
+   "compute_s": 0.003233,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.044613,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.043282,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x10",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 10,
+   "total_s": 0.011194,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x14",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 14,
+   "total_s": 0.011184,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "metal (Apple M3 Max)",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.006581,
+   "plan_s": 0.000136,
+   "io_s": 0.000367,
+   "compute_s": 0.005991,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.056169,
+   "plan_s": 0.000174,
+   "io_s": 0.000379,
+   "compute_s": 0.055615,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x14",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.010916,
+   "plan_s": 0.000129,
+   "io_s": 0.00035,
+   "compute_s": 0.010435,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.045064,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.044733,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x10",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 10,
+   "total_s": 0.012714,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x14",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 14,
+   "total_s": 0.013077,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "metal (Apple M3 Max)",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.003112,
+   "plan_s": 0.000122,
+   "io_s": 0.000898,
+   "compute_s": 0.002012,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.029867,
+   "plan_s": 0.000158,
+   "io_s": 0.000681,
+   "compute_s": 0.029026,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x14",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.00673,
+   "plan_s": 0.000145,
+   "io_s": 0.000856,
+   "compute_s": 0.005728,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 1,
+   "total_s": 1.285949,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 1,
+   "total_s": 1.229408,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes mt x10",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 10,
+   "total_s": 0.219233,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes mt x14",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 14,
+   "total_s": 0.241545,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "metal (Apple M3 Max)",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 0.048862,
+   "plan_s": 0.001702,
+   "io_s": 0.004422,
+   "compute_s": 0.042607,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 1.334966,
+   "plan_s": 0.001479,
+   "io_s": 0.013635,
+   "compute_s": 1.319849,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "cpu-rust x14",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 0.189331,
+   "plan_s": 0.002142,
+   "io_s": 0.01488,
+   "compute_s": 0.172305,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 1,
+   "total_s": 4.151904,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 1,
+   "total_s": 4.028729,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes mt x10",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 10,
+   "total_s": 0.98505,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes mt x14",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 14,
+   "total_s": 0.894617,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "metal (Apple M3 Max)",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 0.147455,
+   "plan_s": 0.005601,
+   "io_s": 0.022509,
+   "compute_s": 0.119194,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 2.578562,
+   "plan_s": 0.005203,
+   "io_s": 0.071418,
+   "compute_s": 2.501935,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "cpu-rust x14",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 0.447906,
+   "plan_s": 0.005164,
+   "io_s": 0.072181,
+   "compute_s": 0.370553,
+   "bytes": 532499274,
+   "values": 771412320
+  }
+ ]
+}

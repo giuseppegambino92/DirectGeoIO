@@ -1,0 +1,13 @@
+[package]
+name = "directgeoio-metal"
+description = "Apple Silicon backend for DirectGeoIO: MTLIOCommandQueue storage->GPU loading + Metal compute decoders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+directgeoio-core = { path = "../directgeoio-core" }
+
+[build-dependencies]
+cc = "1"

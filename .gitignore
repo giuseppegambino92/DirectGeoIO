@@ -1,0 +1,12 @@
+/target
+/.venv
+/fixtures/raw/
+/fixtures/*.grib2
+/fixtures/ref/
+/fixtures/manifest.json
+/bench/results/*.tmp
+__pycache__/
+*.so
+*.dylib
+*.metallib
+/python/directgeoio/_native*

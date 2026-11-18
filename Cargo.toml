@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/directgeoio-core", "crates/directgeoio-metal", "crates/directgeoio", "crates/dgio-cli", "crates/directgeoio-cuda"]
+default-members = ["crates/directgeoio-core", "crates/directgeoio-metal", "crates/directgeoio", "crates/dgio-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+debug = 1
