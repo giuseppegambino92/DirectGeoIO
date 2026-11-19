@@ -4,6 +4,9 @@ description = "DirectGeoIO: zero-copy NVMe-to-GPU GRIB2 decoding (C ABI, DLPack,
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 name = "directgeoio"

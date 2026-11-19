@@ -22,7 +22,10 @@ for path in a.files:
     t0 = time.perf_counter()
     t = f.decode(backend=a.backend)
     t_dg = time.perf_counter() - t0
-    out = t.cpu().numpy() if t.native_device != "cuda" else None
+    if t.native_device == "cuda":
+        sys.exit("verify_full.py compares through host memory; use --backend cpu-mt here and "
+                 "`cargo test -p directgeoio-cuda` (DGIO_EXTRA_FILES) for the CUDA backend")
+    out = t.cpu().numpy()
     flat = out.reshape(-1)
     off, bad_fields, total, masked = 0, 0, 0, 0
     t_ec = 0.0

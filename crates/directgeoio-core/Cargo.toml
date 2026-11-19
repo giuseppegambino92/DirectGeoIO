@@ -4,5 +4,8 @@ description = "Zero-allocation GRIB2 section parser, CPU reference decoders and 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-cpu:
+    name: Linux · CPU decoders vs ecCodes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python deps (ecCodes ground truth)
+        run: pip install eccodes numpy
+      - name: Fetch real GFS / ECMWF Open Data fixtures + ecCodes ground truth
+        run: |
+          python tools/fetch_fixtures.py --date $(date -u -d '2 days ago' +%Y%m%d)
+          python tools/make_fixtures.py
+      - name: Test (bit-exact CPU reference vs ecCodes)
+        run: cargo test --release -p directgeoio-core
+      - name: C ABI example (CPU backend)
+        run: |
+          cargo build --release -p directgeoio
+          cc -O2 -Wall -Iinclude examples/c/decode.c -Ltarget/release -ldirectgeoio \
+             -Wl,-rpath,$PWD/target/release -lm -o decode_c
+          ./decode_c fixtures/gfs_complex_sfc.grib2
+
+  cuda-compile:
+    name: Linux · CUDA backend compile (sm_80/90/120)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/cuda_check.sh
+
+  macos-build:
+    name: macOS · Metal shaders + build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (compiles every .metal kernel into the metallib)
+        run: cargo build --release
+      - name: Unit tests (no GPU on hosted runners)
+        run: cargo test --release -p directgeoio-core --lib

@@ -4,6 +4,9 @@ description = "DirectGeoIO command-line tool: inspect, decode, verify and benchm
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "dgio"

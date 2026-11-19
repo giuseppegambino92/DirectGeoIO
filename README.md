@@ -1,5 +1,8 @@
 # DirectGeoIO
 
+[![CI](https://github.com/giuseppegambino92/DirectGeoIO/actions/workflows/ci.yml/badge.svg)](https://github.com/giuseppegambino92/DirectGeoIO/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 **GPU GRIB2 decoding straight from storage into GPU-resident tensors — Apple Silicon (Metal +
 `MTLIOCommandQueue`) and NVIDIA (CUDA + GPUDirect Storage `cuFile`) — bit-exact with ECMWF ecCodes,
 exported zero-copy to PyTorch, MLX, NumPy and C/C++/Fortran.**
@@ -61,7 +64,7 @@ templates and complex packing with missing-value management.
 | C ABI `include/directgeoio.h`, DLPack, Python package | ✅ |
 | macOS `MTLIOCommandQueue` loading | ✅ measured |
 | CUDA kernels + pinned-staging I/O | ✅ run and verified on RTX 5090 (CUDA 12.9, sm_120); compiles with CUDA 13.0 for sm_80/90/120 |
-| `cuFile` GPUDirect Storage path | ⚠️ compiled, used only when `nvidia_fs` is loaded — **not yet exercised with real GDS** |
+| `cuFile` GPUDirect Storage path | ⚠️ compiled, used only when `nvidia_fs` is loaded — **not yet exercised with real GDS** (see below) |
 | NetCDF4/HDF5 | ❌ not started |
 
 ### Honest notes on the data path
@@ -139,6 +142,22 @@ DGIO_EXTRA_FILES=$(ls -d $PWD/fixtures/raw/bench/*.grib2 | tr '\n' ':') \
   cargo test --release -p directgeoio-cuda -- --test-threads=1 --nocapture
 cargo build --release -p dgio-cli --features dgio-cli/cuda && target/release/dgio bench FILE --backend cuda
 ```
+
+### GPUDirect Storage status (RTX 5090 test machine)
+
+What was checked on Ubuntu 25.04, kernel 6.14, NVIDIA open driver 580, CUDA 12.9 / libcufile 1.14:
+
+* kernel P2PDMA is built in (`CONFIG_PCI_P2PDMA=y`), the GPU and the data NVMe share one AMD root
+  complex, and libcufile reports `kernel Support: 1, pci_p2pdma_supported_cuda: 1`;
+* enabling cuFile's P2PDMA mode (`"use_pci_p2pdma": true` via `CUFILE_ENV_PATH_JSON`, no root needed)
+  fails at `checkIfAllGPUsSupportP2PDMA(): 0` — the driver refuses a P2P device address for the
+  GeForce RTX 5090 (`CUDA_ERROR_NOT_SUPPORTED`, 801);
+* the classic `nvidia-fs` route (`nvidia-fs-dkms`, needs root) was not attempted. It relies on the same
+  GPU-side P2P mapping, so it may hit the same restriction on GeForce boards.
+
+Data-centre and RTX professional GPUs are the boards NVIDIA documents for GDS. On this machine the
+pinned-staging path delivers 532 MB from the page cache in 26 ms, so GDS could save at most that much
+per file here.
 
 ## Layout
 

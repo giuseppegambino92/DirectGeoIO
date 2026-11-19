@@ -4,6 +4,9 @@ description = "NVIDIA backend for DirectGeoIO: cuFile GPUDirect Storage (with pi
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 build = "build.rs"
 
 [dependencies]

@@ -7,6 +7,9 @@ default-members = ["crates/directgeoio-core", "crates/directgeoio-metal", "crate
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+repository = "https://github.com/giuseppegambino92/DirectGeoIO"
+keywords = ["grib2", "gpu", "metal", "cuda", "meteorology"]
+categories = ["science", "encoding"]
 
 [profile.release]
 codegen-units = 1
