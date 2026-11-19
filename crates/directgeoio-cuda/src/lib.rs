@@ -93,8 +93,29 @@ pub struct CudaTensor {
     pub len: usize,
     pub dtype: DType,
     pub shape: Vec<usize>,
-    /// true when the payload went storage -> GPU via GPUDirect Storage
+    /// cuFile served the read (true GPUDirect *or* cuFile compatibility mode — see `storage_path`)
     pub used_gds: bool,
+    pub storage_path: StoragePath,
+}
+
+/// How payload bytes reached device memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoragePath {
+    /// cuFileRead with the nvidia-fs kernel module loaded: NVMe -> GPU DMA (GPUDirect Storage)
+    GpuDirect,
+    /// cuFileRead without nvidia-fs: libcufile's POSIX compatibility mode (bounce through host)
+    CuFileCompat,
+    /// pread into pinned host buffers + cudaMemcpyAsync
+    PinnedStaging,
+}
+impl StoragePath {
+    pub fn name(self) -> &'static str {
+        match self {
+            StoragePath::GpuDirect => "GPUDirect Storage",
+            StoragePath::CuFileCompat => "cuFile compat mode (no nvidia-fs)",
+            StoragePath::PinnedStaging => "pinned-host staging",
+        }
+    }
 }
 unsafe impl Send for CudaTensor {}
 unsafe impl Sync for CudaTensor {}
@@ -136,9 +157,16 @@ impl Drop for HostBuf {
     }
 }
 
+#[derive(Default)]
+struct Pools {
+    raw: Option<(DevBuf, u64)>,
+    mirror: Option<(HostBuf, u64)>,
+}
+unsafe impl Send for Pools {}
+
 pub struct CudaBackend {
     name: String,
-    lock: Mutex<()>,
+    lock: Mutex<Pools>,
     /// Never use GPUDirect Storage (POSIX + pinned staging only).
     pub force_posix: bool,
 }
@@ -150,28 +178,50 @@ impl CudaBackend {
         if unsafe { dgc_init(device, name.as_mut_ptr(), name.len(), err.as_mut_ptr(), err.len()) } != 0 {
             return Err(Error::Unsupported(format!("CUDA init: {}", cerr(&err))));
         }
-        Ok(CudaBackend { name: cerr(&name), lock: Mutex::new(()), force_posix: std::env::var("DGIO_DISABLE_GDS").is_ok() })
+        Ok(CudaBackend { name: cerr(&name), lock: Mutex::new(Pools::default()), force_posix: std::env::var("DGIO_DISABLE_GDS").is_ok() })
     }
     pub fn device_name(&self) -> String {
         self.name.clone()
     }
 
+    /// CCSDS boundary walk on CPU threads over the pinned host copy (one field per task).
     fn cpu_scan(plan: &Plan, host: &[u8], cds: &mut [Cds], status: &mut [DgStatus]) -> Result<()> {
-        for f in plan.fields.iter().filter(|f| f.kind == DG_KIND_CCSDS) {
-            let p = AecParams {
-                nbits: f.nbits,
-                block_size: f.block_size,
-                rsi: f.rsi,
-                id_len: f.id_len,
-                preprocess: f.aec_flags & 1 != 0,
-                pad_rsi: f.aec_flags & 2 != 0,
-                n: f.n_values,
-            };
-            let mut v = Vec::with_capacity(f.aux_cap as usize);
-            aec::scan_cds(&host[f.data_off as usize..(f.data_off + f.data_len) as usize], &p, &mut v)
-                .map_err(|e| Error::Format(e.0))?;
-            cds[f.aux_off as usize..f.aux_off as usize + v.len()].copy_from_slice(&v);
-            status[f.field_index as usize].count = v.len() as u32;
+        let jobs: Vec<&DgField> = plan.fields.iter().filter(|f| f.kind == DG_KIND_CCSDS).collect();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let results: Mutex<Vec<(u32, u32, Vec<Cds>)>> = Mutex::new(Vec::with_capacity(jobs.len()));
+        let err: Mutex<Option<Error>> = Mutex::new(None);
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(jobs.len().max(1));
+        std::thread::scope(|sc| {
+            for _ in 0..threads {
+                sc.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= jobs.len() {
+                        break;
+                    }
+                    let f = jobs[i];
+                    let p = AecParams {
+                        nbits: f.nbits,
+                        block_size: f.block_size,
+                        rsi: f.rsi,
+                        id_len: f.id_len,
+                        preprocess: f.aec_flags & 1 != 0,
+                        pad_rsi: f.aec_flags & 2 != 0,
+                        n: f.n_values,
+                    };
+                    let mut v = Vec::with_capacity(f.aux_cap as usize);
+                    match aec::scan_cds(&host[f.data_off as usize..(f.data_off + f.data_len) as usize], &p, &mut v) {
+                        Ok(()) => results.lock().unwrap().push((f.aux_off, f.field_index, v)),
+                        Err(e) => *err.lock().unwrap() = Some(Error::Format(e.0)),
+                    }
+                });
+            }
+        });
+        if let Some(e) = err.into_inner().unwrap() {
+            return Err(e);
+        }
+        for (aux_off, fi, v) in results.into_inner().unwrap() {
+            cds[aux_off as usize..aux_off as usize + v.len()].copy_from_slice(&v);
+            status[fi as usize].count = v.len() as u32;
         }
         Ok(())
     }
@@ -183,7 +233,7 @@ impl GeoComputeBackend for CudaBackend {
         format!("cuda ({})", self.name)
     }
     fn decode(&self, path: &Path, fields: &[Field], opts: &DecodeOptions) -> Result<(CudaTensor, Timings)> {
-        let _g = self.lock.lock().unwrap();
+        let mut pools = self.lock.lock().unwrap();
         let t0 = Instant::now();
         let plan = plan::build(fields, opts.io)?;
         // CPU boundary walk is only possible when bytes pass through host memory (no GDS)
@@ -191,16 +241,26 @@ impl GeoComputeBackend for CudaBackend {
             && match opts.aec_scan {
                 AecScan::Cpu => true,
                 AecScan::Gpu => false,
-                AecScan::Auto => plan.n_ccsds <= 64,
+                // measured on RTX 5090: the CPU walk wins unless bytes bypass host memory (true GDS)
+                AecScan::Auto => !(Path::new("/sys/module/nvidia_fs").exists() && plan.n_ccsds > 64),
             };
         let plan_s = t0.elapsed().as_secs_f64();
-        let raw = DevBuf(unsafe { dgc_malloc(plan.raw_len) });
+        // pooled device staging buffer and pinned mirror (cudaHostAlloc of 100s of MB is slow)
+        if pools.raw.as_ref().map(|(_, n)| *n < plan.raw_len).unwrap_or(true) {
+            let n = plan.raw_len.next_power_of_two();
+            pools.raw = Some((DevBuf(unsafe { dgc_malloc(n) }), n));
+        }
+        if cpu_scan && pools.mirror.as_ref().map(|(_, n)| *n < plan.raw_len).unwrap_or(true) {
+            let n = plan.raw_len.next_power_of_two();
+            pools.mirror = Some((HostBuf(unsafe { dgc_host_alloc(n) }), n));
+        }
+        let raw = &pools.raw.as_ref().unwrap().0;
         let out_bytes = plan.out_len * opts.dtype.size() as u64;
         let out = unsafe { dgc_malloc(out_bytes) };
         if raw.0.is_null() || out.is_null() {
             return Err(Error::Unsupported("cudaMalloc failed".into()));
         }
-        let mirror = if cpu_scan { Some(HostBuf(unsafe { dgc_host_alloc(plan.raw_len) })) } else { None };
+        let mirror: Option<&HostBuf> = if cpu_scan { pools.mirror.as_ref().map(|(b, _)| b) } else { None };
         let fo: Vec<u64> = plan.io.iter().map(|r| r.file_offset).collect();
         let bo: Vec<u64> = plan.io.iter().map(|r| r.buf_offset).collect();
         let ln: Vec<u64> = plan.io.iter().map(|r| r.len).collect();
@@ -290,7 +350,21 @@ impl GeoComputeBackend for CudaBackend {
             return Err(Error::Format(format!("field {i}: GPU decode error {}", s.error)));
         }
         let compute_s = t1.elapsed().as_secs_f64();
-        let t = CudaTensor { ptr: out, len: plan.out_len as usize, dtype: opts.dtype, shape: shape_of(fields), used_gds: st.used_gds != 0 };
+        let storage_path = if st.used_gds == 0 {
+            StoragePath::PinnedStaging
+        } else if Path::new("/sys/module/nvidia_fs").exists() {
+            StoragePath::GpuDirect
+        } else {
+            StoragePath::CuFileCompat
+        };
+        let t = CudaTensor {
+            ptr: out,
+            len: plan.out_len as usize,
+            dtype: opts.dtype,
+            shape: shape_of(fields),
+            used_gds: st.used_gds != 0,
+            storage_path,
+        };
         Ok((
             t,
             Timings { plan_s, io_s: st.seconds, compute_s, total_s: t0.elapsed().as_secs_f64(), bytes_read: st.bytes, values: plan.out_len },

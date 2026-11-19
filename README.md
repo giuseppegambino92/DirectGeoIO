@@ -24,21 +24,27 @@ exported zero-copy to PyTorch, MLX, NumPy and C/C++/Fortran.**
                  torch.from_dlpack · mx.from_dlpack · np.from_dlpack · C ABI (WRF, Fortran)
 ```
 
-## Results (Apple M3 Max, 36 GB)
+## Results
 
-Complete operational files, end-to-end from disk to a contiguous float32 tensor
-(full table and conditions: [`bench/results/m3max.md`](bench/results/m3max.md)):
+Complete operational files, end-to-end from disk to a contiguous float32 tensor, page cache warm.
+ecCodes MT = best of two thread counts. Full tables and conditions:
+[`bench/results/rtx5090.md`](bench/results/rtx5090.md), [`bench/results/m3max.md`](bench/results/m3max.md).
 
-| file | values | ecCodes 1 thread | ecCodes 14 threads | **DirectGeoIO Metal** | vs 1T | vs MT |
-|---|---:|---:|---:|---:|---:|---:|
-| ECMWF IFS 0.25° 6 h step — 191 fields, all Template 5.42 CCSDS | 198 M | 1286 ms | 219 ms¹ | **48.9 ms** | 26× | 4.5× |
-| NOAA GFS 0.25° f006 — 743 fields, Template 5.3 (+5.0) | 771 M | 4152 ms | 895 ms | **147 ms** | 28× | 6.1× |
+| file | values | machine | ecCodes 1T | ecCodes MT | **DirectGeoIO** | vs 1T | vs MT |
+|---|---:|---|---:|---:|---:|---:|---:|
+| ECMWF IFS 0.25° 6 h step — 191 fields, all 5.42 CCSDS | 198 M | RTX 5090 + Ryzen 9 9950X3D | 831 ms | 149 ms | **40.0 ms** | 21× | 3.7× |
+| NOAA GFS 0.25° f006 — 743 fields, 5.3 (+5.0) | 771 M | RTX 5090 + Ryzen 9 9950X3D | 3372 ms | 807 ms | **59.0 ms** | 57× | 13.7× |
+| ECMWF IFS 0.25° 6 h step | 198 M | Apple M3 Max¹ | 1286 ms | 219 ms | **48.9 ms** | 26× | 4.5× |
+| NOAA GFS 0.25° f006 | 771 M | Apple M3 Max¹ | 4152 ms | 895 ms | **147 ms** | 28× | 6.1× |
 
-¹ best of 10/14 threads. Measured while unrelated jobs kept the machine at load ~11, page cache warm.
+¹ measured while unrelated jobs kept the Mac at load ≈11. On the RTX 5090 the CUDA tensor ends in device
+memory (ecCodes' output would still need a host→device copy, not counted); payload bytes went through
+DirectGeoIO's pinned staging because that machine has no `nvidia_fs` (no true GPUDirect Storage).
 
 **Correctness.** Every value of both complete files — 969,716,160 grid points, including 25.7 M
-bitmap- or missing-value-masked points — is **bit-identical to `float32(ecCodes float64)`**
-(`make verify-full`). The test corpus additionally covers Template 5.0 at 1, 5, 11, 12, 14, 19, 23, 27
+bitmap- or missing-value-masked points — is **bit-identical to `float32(ecCodes float64)`** on the
+Metal backend (`make verify-full`) and identical to the ecCodes-verified CPU reference on the CUDA
+backend (1,040,316,480 values incl. the test corpus, both CCSDS boundary-walk modes). The test corpus additionally covers Template 5.0 at 1, 5, 11, 12, 14, 19, 23, 27
 and 32 bits, CCSDS at 3, 8, 9, 11, 12, 16, 17, 21 and 24 bits, Section 6 bitmaps for all three
 templates and complex packing with missing-value management.
 
@@ -54,7 +60,8 @@ templates and complex packing with missing-value management.
 | float32 output (bit-exact) / fast single-FMA mode (≤1 ulp) / float16 output | ✅ |
 | C ABI `include/directgeoio.h`, DLPack, Python package | ✅ |
 | macOS `MTLIOCommandQueue` loading | ✅ measured |
-| CUDA kernels + `cuFile` GDS + pinned fallback | ✅ **compiled** (CUDA 13.0, sm_80/90/120); ⚠️ **not yet run on NVIDIA hardware** |
+| CUDA kernels + pinned-staging I/O | ✅ run and verified on RTX 5090 (CUDA 12.9, sm_120); compiles with CUDA 13.0 for sm_80/90/120 |
+| `cuFile` GPUDirect Storage path | ⚠️ compiled, used only when `nvidia_fs` is loaded — **not yet exercised with real GDS** |
 | NetCDF4/HDF5 | ❌ not started |
 
 ### Honest notes on the data path
@@ -69,7 +76,8 @@ templates and complex packing with missing-value management.
   every block, every RSI and every value in parallel on the GPU. On Apple Silicon this walk runs by
   default on CPU threads reading the DMA'd buffer *in place* (unified memory, no copy) — it is ~60×
   faster per block than a single GPU thread. A GPU-only walk is available (`aec_scan="gpu"`) and is used
-  automatically on the CUDA GPUDirect path, where payload bytes never reach host memory.
+  automatically on the CUDA GPUDirect path, where payload bytes never reach host memory. On the RTX 5090
+  the CPU walk also won (8 CCSDS fields: 2.4 vs 28 ms; 191 fields: 41 vs 92 ms).
 * **Blelloch scans do the structural work:** bitmap ranks, complex-packing group bit/sample offsets,
   missing-value compaction, and a fused segmented scan for second-order spatial differencing
   (`v = scan(scan(t))` with a per-tile affine carry).
@@ -121,9 +129,16 @@ DGIO_DISABLE_GDS=1 ...                       # force the pinned-host staging pat
 make cuda-check                              # compile check inside nvidia/cuda:13.0.2-devel (no GPU needed)
 ```
 
-`libcufile` is `dlopen`ed at runtime: if GPUDirect Storage (nvidia-fs) is unavailable, reads fall back to
-double-buffered `pread` + `cudaMemcpyAsync` through pinned memory. **These paths compile cleanly but
-have not been executed on an NVIDIA GPU yet; RTX 5090 numbers will be added once measured.**
+`libcufile` is `dlopen`ed at runtime and used only when the `nvidia_fs` kernel module is loaded
+(override: `DGIO_FORCE_CUFILE=1`). Otherwise reads use double-buffered `pread` + `cudaMemcpyAsync`
+through pinned memory — on the RTX 5090 test machine this beat libcufile's POSIX compat mode
+(26 vs 42 ms for 532 MB). Validation on a CUDA machine:
+
+```bash
+DGIO_EXTRA_FILES=$(ls -d $PWD/fixtures/raw/bench/*.grib2 | tr '\n' ':') \
+  cargo test --release -p directgeoio-cuda -- --test-threads=1 --nocapture
+cargo build --release -p dgio-cli --features dgio-cli/cuda && target/release/dgio bench FILE --backend cuda
+```
 
 ## Layout
 

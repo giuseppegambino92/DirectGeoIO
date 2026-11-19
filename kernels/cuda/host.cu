@@ -56,6 +56,10 @@ static bool cufile_init() {
     if (g_cufile.tried) return g_cufile.ok;
     g_cufile.tried = true;
     if (getenv("DGIO_DISABLE_GDS")) return false;
+    // Without the nvidia-fs kernel module libcufile silently falls back to POSIX "compat mode",
+    // which measured slower than our own double-buffered pinned staging (RTX 5090: 42 vs 26 ms
+    // for 532 MB). Only take the cuFile path when real GPUDirect Storage is possible.
+    if (access("/sys/module/nvidia_fs", F_OK) != 0 && !getenv("DGIO_FORCE_CUFILE")) return false;
     void* h = dlopen("libcufile.so.0", RTLD_NOW | RTLD_LOCAL);
     if (!h) h = dlopen("libcufile.so", RTLD_NOW | RTLD_LOCAL);
     if (!h) return false;

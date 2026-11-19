@@ -1,7 +1,7 @@
 //! dgio — inspect / decode / benchmark GRIB2 with DirectGeoIO.
 //!
 //!   dgio info  <file.grib2>
-//!   dgio bench <file.grib2>... [--backend metal|cpu|cpu-mt|all] [--repeat N] [--fast] [--f16]
+//!   dgio bench <file.grib2>... [--backend metal|cuda|cpu|cpu-mt|all] [--repeat N] [--fast] [--f16]
 //!              [--io span|ranges|auto] [--json]
 
 use directgeoio_core::backend::{AecScan, DType, DecodeOptions, GeoComputeBackend, Timings};
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 fn usage() -> ! {
-    eprintln!("usage: dgio info <file> | dgio bench <files>... [--backend metal|cpu|cpu-mt|all] [--repeat N] [--fast] [--f16] [--io span|ranges|auto] [--json]");
+    eprintln!("usage: dgio info <file> | dgio bench <files>... [--backend metal|cuda|cpu|cpu-mt|all] [--repeat N] [--fast] [--f16] [--io span|ranges|auto] [--json]");
     std::process::exit(2)
 }
 
@@ -117,6 +117,14 @@ fn bench(args: &[String]) {
         // warm-up: pipeline-state compilation and pooled buffer allocation
         let f0 = scan(&std::fs::File::open(&files[0]).unwrap()).unwrap();
         let _ = be.decode(&files[0], &f0, &opts).unwrap();
+        run(&be, &files, &opts, repeat, &mut rows);
+    }
+    #[cfg(feature = "cuda")]
+    if want("cuda") {
+        let be = directgeoio_cuda::CudaBackend::new(0).unwrap();
+        let f0 = scan(&std::fs::File::open(&files[0]).unwrap()).unwrap();
+        let (t, _) = be.decode(&files[0], &f0, &opts).unwrap();
+        eprintln!("cuda: {} (storage path: {})", be.device_name(), t.storage_path.name());
         run(&be, &files, &opts, repeat, &mut rows);
     }
     let cpu_opts = DecodeOptions { dtype: DType::F32, ..opts };

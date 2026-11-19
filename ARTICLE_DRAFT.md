@@ -1,6 +1,6 @@
 # Bypassing the CPU to Decode Weather Data: NVMe-to-GPU GRIB2 Decompression on Apple Silicon and NVIDIA GPUs
 
-*Draft — numbers measured on an Apple M3 Max; NVIDIA results pending hardware runs.*
+*Draft — measured on an NVIDIA RTX 5090 (Ryzen 9 9950X3D host) and an Apple M3 Max.*
 
 ## The problem: GPUs wait for a single CPU thread
 
@@ -94,21 +94,26 @@ gives an MLX array over the same memory. `np.from_dlpack(t.cpu())` is a host vie
 which is legal only because Apple GPUs share memory. All three are verified by pointer identity in the
 test-suite. Fortran and C codes such as WRF use the plain C ABI.
 
-## Results (Apple M3 Max, warm page cache, background load ≈ 11)
+## Results (warm page cache)
 
-| file | ecCodes 1T | ecCodes MT | DirectGeoIO | speed-up vs 1T / MT |
-|---|---:|---:|---:|---:|
-| ECMWF IFS 6 h step, 191 CCSDS fields, 198 M values | 1286 ms | 219 ms | **48.9 ms** | 26× / 4.5× |
-| NOAA GFS f006, 743 complex-packed fields, 771 M values | 4152 ms | 895 ms | **147 ms** | 28× / 6.1× |
+| file | machine | ecCodes 1T | ecCodes MT | DirectGeoIO | vs 1T / MT |
+|---|---|---:|---:|---:|---:|
+| ECMWF IFS 6 h step, 191 CCSDS fields, 198 M values | RTX 5090 | 831 ms | 149 ms | **40.0 ms** | 21× / 3.7× |
+| NOAA GFS f006, 743 complex-packed fields, 771 M values | RTX 5090 | 3372 ms | 807 ms | **59.0 ms** | 57× / 13.7× |
+| ECMWF IFS 6 h step | M3 Max | 1286 ms | 219 ms | **48.9 ms** | 26× / 4.5× |
+| NOAA GFS f006 | M3 Max | 4152 ms | 895 ms | **147 ms** | 28× / 6.1× |
 
-GFS decodes at 5.2 billion values per second, about 21 GB/s of float32 output. Per-kernel profiles show
-the remaining time split between tile-parallel unpacking, the fused differencing scan and the final
-gather/dequantise pass, each within about 2× of the GPU's memory bandwidth.
+On the RTX 5090, GFS decoding itself takes 30 ms — 26 billion values per second; half of the 59 ms is
+moving 532 MB from the page cache into VRAM. That test machine has no `nvidia_fs`, so bytes went through
+pinned staging rather than GPUDirect Storage. libcufile's compat mode, which falls back to POSIX
+silently, was measurably slower (42 vs 26 ms), so DirectGeoIO only takes the cuFile path when real GDS
+is available. The CUDA backend ran correctly the first time it touched NVIDIA hardware: 1.04 billion
+values, identical to the CPU reference that is itself bit-exact with ecCodes. The M3 Max numbers were
+taken while unrelated jobs loaded the machine.
 
 ## What's next
 
-* Run and tune the CUDA backend on an RTX 5090 (the kernels and the `cuFile` path compile for sm_120
-  but have not yet executed on NVIDIA hardware).
+* Measure real GPUDirect Storage (nvidia-fs loaded) against pinned staging.
 * Cold-cache NVMe measurements, and overlapping the CCSDS boundary walk of batch *n+1* with GPU decode
   of batch *n*.
 * JPEG 2000 (Template 5.40) and NetCDF4/HDF5 chunked reading.

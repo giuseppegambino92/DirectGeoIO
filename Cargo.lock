@@ -17,6 +17,7 @@ name = "dgio-cli"
 version = "0.1.0"
 dependencies = [
  "directgeoio-core",
+ "directgeoio-cuda",
  "directgeoio-metal",
 ]
 

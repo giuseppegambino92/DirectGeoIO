@@ -36,7 +36,7 @@ def main():
     ap.add_argument("--repeat", type=int, default=5)
     a = ap.parse_args()
     ncpu = os.cpu_count()
-    perf = int(sh(["sysctl", "-n", "hw.perflevel0.physicalcpu"]).strip() or ncpu) if sys.platform == "darwin" else ncpu
+    perf = int(sh(["sysctl", "-n", "hw.perflevel0.physicalcpu"]).strip() or ncpu) if sys.platform == "darwin" else ncpu // 2
     rows = []
     for f in a.files:
         path = str(ROOT / f)
@@ -48,20 +48,26 @@ def main():
             r["backend"] = f"ecCodes {mode}" + (f" x{threads}" if mode == "mt" else "")
             rows.append(r)
             print(f"  {r['backend']:<28} {r['total_s']*1e3:9.2f} ms", flush=True)
-        out = json.loads(sh([str(DGIO), "bench", path, "--json", "--repeat", str(rep * 2)]))
+        out = json.loads(sh([str(DGIO), "bench", path, "--json", "--repeat", str(rep * 2)] + os.environ.get("DGIO_BENCH_ARGS", "").split()))
         for r in out:
             r["file"] = os.path.basename(path)
             rows.append(r)
             print(f"  {r['backend']:<28} {r['total_s']*1e3:9.2f} ms  (io {r['io_s']*1e3:.2f}, decode {r['compute_s']*1e3:.2f})", flush=True)
     host = platform.node().split(".")[0].lower() or "host"
-    chip = sh(["sysctl", "-n", "machdep.cpu.brand_string"]).strip() if sys.platform == "darwin" else platform.processor()
+    if sys.platform == "darwin":
+        chip = sh(["sysctl", "-n", "machdep.cpu.brand_string"]).strip()
+        tag = chip.replace("Apple ", "").replace(" ", "").lower()
+    else:
+        cpu = next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), "cpu")
+        gpu = sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).strip().splitlines()[0]
+        chip = f"{gpu} + {cpu}"
+        tag = gpu.replace("NVIDIA ", "").replace("GeForce ", "").replace(" ", "").lower()
     outdir = ROOT / "bench/results"
     outdir.mkdir(parents=True, exist_ok=True)
-    tag = chip.replace("Apple ", "").replace(" ", "").lower()
     (outdir / f"{tag}.json").write_text(json.dumps({"chip": chip, "cpus": ncpu, "perf_cores": perf, "rows": rows}, indent=1))
     # markdown
-    md = [f"# DirectGeoIO benchmark — {chip} ({ncpu} cores, {perf} performance)\n",
-          "End-to-end: GRIB2 file on disk → contiguous float32 values in (unified) memory. Best of N runs; "
+    md = [f"# DirectGeoIO benchmark — {chip} ({ncpu} hardware threads)\n",
+          "End-to-end: GRIB2 file on disk → contiguous float32 values in host, unified or GPU device memory. Best of N runs; "
           "files are in the OS page cache (warm). Speed-up is relative to single-thread ecCodes.\n"]
     files = []
     for r in rows:

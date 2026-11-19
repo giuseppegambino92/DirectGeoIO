@@ -9,8 +9,12 @@ license.workspace = true
 name = "dgio"
 path = "src/main.rs"
 
+[features]
+cuda = ["dep:directgeoio-cuda"]
+
 [dependencies]
 directgeoio-core = { path = "../directgeoio-core" }
+directgeoio-cuda = { path = "../directgeoio-cuda", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 directgeoio-metal = { path = "../directgeoio-metal" }

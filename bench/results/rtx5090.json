@@ -1,0 +1,317 @@
+{
+ "chip": "NVIDIA GeForce RTX 5090 + AMD Ryzen 9 9950X3D 16-Core Processor",
+ "cpus": 32,
+ "perf_cores": 16,
+ "rows": [
+  {
+   "backend": "ecCodes st",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 1,
+   "total_s": 0.020108,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 1,
+   "total_s": 0.017962,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x16",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 16,
+   "total_s": 0.006159,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x32",
+   "file": "simple_t_pl_14bit.grib2",
+   "threads": 32,
+   "total_s": 0.005823,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "cuda (NVIDIA GeForce RTX 5090 (sm_120))",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.003741,
+   "plan_s": 3.2e-05,
+   "io_s": 0.003516,
+   "compute_s": 0.000145,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.0187,
+   "plan_s": 4.4e-05,
+   "io_s": 0.002215,
+   "compute_s": 0.01644,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x32",
+   "file": "simple_t_pl_14bit.grib2",
+   "total_s": 0.008708,
+   "plan_s": 4.8e-05,
+   "io_s": 0.001287,
+   "compute_s": 0.007371,
+   "bytes": 14536928,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.032046,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.029334,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x16",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 16,
+   "total_s": 0.008537,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x32",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "threads": 32,
+   "total_s": 0.008404,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "cuda (NVIDIA GeForce RTX 5090 (sm_120))",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.001868,
+   "plan_s": 2.6e-05,
+   "io_s": 0.000222,
+   "compute_s": 0.001581,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.039258,
+   "plan_s": 4.3e-05,
+   "io_s": 0.000199,
+   "compute_s": 0.039015,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x32",
+   "file": "ecmwf_ccsds_t_pl.grib2",
+   "total_s": 0.011191,
+   "plan_s": 4.1e-05,
+   "io_s": 0.000219,
+   "compute_s": 0.010929,
+   "bytes": 2264997,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.042002,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 1,
+   "total_s": 0.063059,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x16",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 16,
+   "total_s": 0.012343,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes mt x32",
+   "file": "gfs_complex_t_pl.grib2",
+   "threads": 32,
+   "total_s": 0.010864,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "cuda (NVIDIA GeForce RTX 5090 (sm_120))",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.003409,
+   "plan_s": 2.5e-05,
+   "io_s": 0.002872,
+   "compute_s": 0.000483,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.020405,
+   "plan_s": 3.5e-05,
+   "io_s": 0.000443,
+   "compute_s": 0.019926,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "cpu-rust x32",
+   "file": "gfs_complex_t_pl.grib2",
+   "total_s": 0.00787,
+   "plan_s": 6.5e-05,
+   "io_s": 0.000595,
+   "compute_s": 0.007205,
+   "bytes": 6220855,
+   "values": 8305920
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 1,
+   "total_s": 0.831159,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 1,
+   "total_s": 0.824499,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes mt x16",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 16,
+   "total_s": 0.149311,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes mt x32",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "threads": 32,
+   "total_s": 0.17229,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "cuda (NVIDIA GeForce RTX 5090 (sm_120))",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 0.039982,
+   "plan_s": 0.000641,
+   "io_s": 0.010245,
+   "compute_s": 0.027884,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 1.37156,
+   "plan_s": 0.00058,
+   "io_s": 0.01919,
+   "compute_s": 1.350548,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "cpu-rust x32",
+   "file": "ecmwf_ifs_0p25_20261117_00z_6h.grib2",
+   "total_s": 0.242156,
+   "plan_s": 0.000593,
+   "io_s": 0.01921,
+   "compute_s": 0.220968,
+   "bytes": 100024406,
+   "values": 198303840
+  },
+  {
+   "backend": "ecCodes st",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 1,
+   "total_s": 3.37178,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes st-f32",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 1,
+   "total_s": 5.284713,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes mt x16",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 16,
+   "total_s": 0.806551,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "ecCodes mt x32",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "threads": 32,
+   "total_s": 1.128923,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "cuda (NVIDIA GeForce RTX 5090 (sm_120))",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 0.059039,
+   "plan_s": 0.001902,
+   "io_s": 0.027267,
+   "compute_s": 0.029753,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "cpu-rust x1",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 3.1367,
+   "plan_s": 0.001912,
+   "io_s": 0.094991,
+   "compute_s": 3.031498,
+   "bytes": 532499274,
+   "values": 771412320
+  },
+  {
+   "backend": "cpu-rust x32",
+   "file": "gfs_0p25_20261117_00z_f006.grib2",
+   "total_s": 1.087674,
+   "plan_s": 0.001989,
+   "io_s": 0.095833,
+   "compute_s": 0.98137,
+   "bytes": 532499274,
+   "values": 771412320
+  }
+ ]
+}
