@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["fuzz"]
 members = ["crates/directgeoio-core", "crates/directgeoio-metal", "crates/directgeoio", "crates/dgio-cli", "crates/directgeoio-cuda"]
 default-members = ["crates/directgeoio-core", "crates/directgeoio-metal", "crates/directgeoio", "crates/dgio-cli"]
 

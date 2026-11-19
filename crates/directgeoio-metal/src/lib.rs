@@ -9,7 +9,7 @@
 use directgeoio_core::backend::{shape_of, AecScan, DType, DecodeOptions, GeoComputeBackend, Timings};
 use directgeoio_core::grib2::{Error, Field, Result};
 use directgeoio_core::aec::{self, AecParams, Cds};
-use directgeoio_core::plan::{self, DgField, DgParams, DgStatus, Plan, DG_KIND_CCSDS, DG_ERR_GROUPS, DG_ERR_TRUNCATED, DG_SCAN_THREADS, DG_SCAN_TILE};
+use directgeoio_core::plan::{self, DgField, DgParams, DgStatus, Plan, DG_KIND_CCSDS, DG_ERR_BITMAP, DG_ERR_GROUPS, DG_ERR_TRUNCATED, DG_SCAN_THREADS, DG_SCAN_TILE};
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::Path;
 use std::sync::Mutex;
@@ -352,6 +352,22 @@ impl MetalBackend {
         self.alloc(len.next_power_of_two().max(4096), private)
     }
 
+    /// Run a 1-D kernel over `n` threads with `bufs` bound at indices 0.. (test/diagnostic use).
+    #[doc(hidden)]
+    pub fn dispatch_1d(&self, kernel: &str, bufs: &[&MtlBuffer], n: u32) -> Result<f64> {
+        let cmd = Cmd { raw: std::cell::Cell::new(unsafe { dg_mtl_cmd_begin(self.ctx) }), be: self, profile: None };
+        let b: Vec<B> = bufs.iter().map(|x| B(x, 0)).collect();
+        let r = cmd.dispatch(kernel, &b, None, [n, 1, 1], 0, false);
+        let mut gpu = 0.0;
+        let mut err = [0 as c_char; 256];
+        let rc = unsafe { dg_mtl_cmd_end_wait(cmd.raw.get(), &mut gpu, err.as_mut_ptr(), err.len()) };
+        r?;
+        if rc != 0 {
+            return Err(Error::Unsupported(err_str(&err)));
+        }
+        Ok(gpu)
+    }
+
     /// DMA the plan's byte ranges from `path` into `dst` with MTLIOCommandQueue.
     pub fn load(&self, path: &Path, plan: &Plan, dst: &MtlBuffer) -> Result<f64> {
         let cpath = CString::new(path.as_os_str().to_str().ok_or_else(|| Error::Format("path".into()))?).unwrap();
@@ -445,9 +461,9 @@ impl MetalBackend {
             }
             if plan.n_complex > 0 {
                 let pg = DgParams { n: plan.groups_len, ..p };
-                cmd.dispatch("cplx_groups", &[r, fd, B(&gref, 0), B(&gwid, 0), B(&gscan, 0)], Some((&pg, 5)), [plan.max_groups, nf, 1], 0, false)?;
+                cmd.dispatch("cplx_groups", &[r, fd, B(&gref, 0), B(&gwid, 0), B(&gscan, 0), B(&aux, 0), B(&status, 0)], Some((&pg, 5)), [plan.max_groups, nf, 1], 0, false)?;
                 cmd.scan(B(&gscan, 0), plan.groups_len * 2, false, &aux)?;
-                cmd.dispatch("cplx_tile_index", &[fd, B(&gscan, 0), B(&tiles, 0)], Some((&pg, 3)), [plan.max_groups, nf, 1], 0, false)?;
+                cmd.dispatch("cplx_tile_index", &[fd, B(&gscan, 0), B(&tiles, 0), B(&aux, 0), B(&status, 0)], Some((&pg, 3)), [plan.max_groups, nf, 1], 0, false)?;
                 cmd.dispatch(
                     "cplx_unpack",
                     &[r, fd, B(&gref, 0), B(&gwid, 0), B(&gscan, 0), B(&codes, 0), B(&status, 0), B(&aux, 0), B(&xraw, 0), B(&mvalid, 0), B(&tiles, 0)],
@@ -503,7 +519,8 @@ impl MetalBackend {
             match s.error {
                 0 => {}
                 DG_ERR_TRUNCATED => return Err(Error::Format(format!("field {i}: CCSDS stream truncated"))),
-                DG_ERR_GROUPS => return Err(Error::Format(format!("field {i}: complex group lengths inconsistent"))),
+                DG_ERR_GROUPS => return Err(Error::Format(format!("field {i}: complex group table inconsistent"))),
+                DG_ERR_BITMAP => return Err(Error::Format(format!("field {i}: bitmap marks more points than packed values"))),
                 e => return Err(Error::Format(format!("field {i}: GPU decode error {e}"))),
             }
         }

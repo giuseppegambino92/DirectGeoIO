@@ -24,8 +24,12 @@ jobs:
         run: |
           python tools/fetch_fixtures.py --date $(date -u -d '2 days ago' +%Y%m%d)
           python tools/make_fixtures.py
-      - name: Test (bit-exact CPU reference vs ecCodes)
-        run: cargo test --release -p directgeoio-core
+      - name: Test (bit-exact CPU reference vs ecCodes, unsupported templates, 200k-input fuzz)
+        run: cargo test --release -p directgeoio-core -- --nocapture
+        env:
+          DGIO_FUZZ_ITERS: "200000"
+      - name: cargo-fuzz target compiles
+        run: cargo check --manifest-path fuzz/Cargo.toml
       - name: C ABI example (CPU backend)
         run: |
           cargo build --release -p directgeoio

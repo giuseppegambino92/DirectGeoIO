@@ -7,3 +7,5 @@ Test data fetched by tools/fetch_fixtures.py (not redistributed in this reposito
   * NOAA Global Forecast System (GFS) output, NOAA Open Data Dissemination on AWS — public domain.
   * ECMWF Open Data (IFS), Copyright ECMWF, licensed under CC BY 4.0 —
     https://www.ecmwf.int/en/forecasts/datasets/open-data
+  * Deutscher Wetterdienst (DWD) ICON open data — https://opendata.dwd.de (DWD terms of use / CC BY 4.0).
+  * Environment and Climate Change Canada (MSC Datamart, GDPS) — Open Government Licence – Canada.

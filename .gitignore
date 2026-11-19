@@ -10,3 +10,7 @@ __pycache__/
 *.dylib
 *.metallib
 /python/directgeoio/_native*
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fixtures/unsupported/

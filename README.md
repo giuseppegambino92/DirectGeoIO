@@ -29,27 +29,37 @@ exported zero-copy to PyTorch, MLX, NumPy and C/C++/Fortran.**
 
 ## Results
 
-Complete operational files, end-to-end from disk to a contiguous float32 tensor, page cache warm.
-ecCodes MT = best of two thread counts. Full tables and conditions:
-[`bench/results/rtx5090.md`](bench/results/rtx5090.md), [`bench/results/m3max.md`](bench/results/m3max.md).
+Complete operational files, end-to-end from disk to a contiguous float32 tensor. **Median of 5–10
+runs** (p10–p90 within a few percent on the idle Linux machine). ecCodes MT = best of 16/32 threads.
+Full tables: [`rtx5090.md`](bench/results/rtx5090.md), [`rtx5090-cold.md`](bench/results/rtx5090-cold.md),
+[`m3max.md`](bench/results/m3max.md).
 
-| file | values | machine | ecCodes 1T | ecCodes MT | **DirectGeoIO** | vs 1T | vs MT |
-|---|---:|---|---:|---:|---:|---:|---:|
-| ECMWF IFS 0.25° 6 h step — 191 fields, all 5.42 CCSDS | 198 M | RTX 5090 + Ryzen 9 9950X3D | 831 ms | 149 ms | **40.0 ms** | 21× | 3.7× |
-| NOAA GFS 0.25° f006 — 743 fields, 5.3 (+5.0) | 771 M | RTX 5090 + Ryzen 9 9950X3D | 3372 ms | 807 ms | **59.0 ms** | 57× | 13.7× |
-| ECMWF IFS 0.25° 6 h step | 198 M | Apple M3 Max¹ | 1286 ms | 219 ms | **48.9 ms** | 26× | 4.5× |
-| NOAA GFS 0.25° f006 | 771 M | Apple M3 Max¹ | 4152 ms | 895 ms | **147 ms** | 28× | 6.1× |
+**NVIDIA RTX 5090 + Ryzen 9 9950X3D** (Ubuntu 25.04, CUDA 12.9, ecCodes 2.50.0)
 
-¹ measured while unrelated jobs kept the Mac at load ≈11. On the RTX 5090 the CUDA tensor ends in device
-memory (ecCodes' output would still need a host→device copy, not counted); payload bytes went through
-DirectGeoIO's pinned staging because that machine has no `nvidia_fs` (no true GPUDirect Storage).
+| file | cache | ecCodes 1T | ecCodes MT | **DirectGeoIO CUDA** | vs 1T | vs MT |
+|---|---|---:|---:|---:|---:|---:|
+| ECMWF IFS 0.25° 6 h step — 191 fields, all 5.42 CCSDS, 198 M values | warm | 837 ms | 150 ms | **40.5 ms** | 21× | 3.7× |
+| | cold¹ | 856 ms | 181 ms | **87.6 ms** | 9.8× | 2.1× |
+| NOAA GFS 0.25° f006 — 743 fields, 5.3 (+5.0), 771 M values | warm | 3365 ms | 822 ms | **60.6 ms** | 56× | 13.6× |
+| | cold¹ | 3505 ms | 900 ms | **242 ms** | 14.5× | 3.7× |
+
+**Apple M3 Max** (macOS, ecCodes 2.50.1; best of N while unrelated jobs kept the machine at load ≈11; warm cache)
+
+| file | ecCodes 1T | ecCodes MT | **DirectGeoIO Metal** | vs 1T | vs MT |
+|---|---:|---:|---:|---:|---:|
+| ECMWF IFS 0.25° 6 h step | 1286 ms | 219 ms | **48.9 ms** | 26× | 4.5× |
+| NOAA GFS 0.25° f006 | 4152 ms | 895 ms | **147 ms** | 28× | 6.1× |
+
+¹ every run starts after evicting the file from the page cache (`posix_fadvise(DONTNEED)`). Cold, GFS is
+bound by DirectGeoIO's single-stream pinned staging (532 MB in 154 ms ≈ 3.5 GB/s, well below the NVMe's
+capability) — parallel reads or GPUDirect Storage are the next step. The CUDA tensor ends in device
+memory; ecCodes' output would still need a host→device copy (not counted). That machine has no
+`nvidia_fs`, so bytes go through pinned staging rather than GPUDirect Storage.
 
 **Correctness.** Every value of both complete files — 969,716,160 grid points, including 25.7 M
 bitmap- or missing-value-masked points — is **bit-identical to `float32(ecCodes float64)`** on the
 Metal backend (`make verify-full`) and identical to the ecCodes-verified CPU reference on the CUDA
-backend (1,040,316,480 values incl. the test corpus, both CCSDS boundary-walk modes). The test corpus additionally covers Template 5.0 at 1, 5, 11, 12, 14, 19, 23, 27
-and 32 bits, CCSDS at 3, 8, 9, 11, 12, 16, 17, 21 and 24 bits, Section 6 bitmaps for all three
-templates and complex packing with missing-value management.
+backend (1,040,316,480 values incl. the test corpus, both CCSDS boundary-walk modes). See [Verification and robustness](#verification-and-robustness) for the full test matrix.
 
 ## What is (and is not) implemented
 
@@ -59,12 +69,12 @@ templates and complex packing with missing-value management.
 | Template 5.0 simple packing, 0–32 bits | ✅ CPU + Metal + CUDA |
 | Template 5.42 CCSDS 121.0-B-3 / libaec (preprocessing, SE, zero-block + ROS, uncompressed, `AEC_PAD_RSI`, restricted IDs) | ✅ unsigned samples |
 | Templates 5.2 / 5.3 complex packing, spatial differencing order 1/2, missing-value management 0/1/2 | ✅ |
-| Templates 5.40 (JPEG 2000), 5.41 (PNG), 5.50/5.51 (spectral) | ❌ rejected with a clear error |
+| Templates 5.40 (JPEG 2000), 5.41 (PNG), 5.50/5.51 (spectral) | ❌ listed per field (`supported = false`), decoding them returns `Unsupported` |
 | float32 output (bit-exact) / fast single-FMA mode (≤1 ulp) / float16 output | ✅ |
 | C ABI `include/directgeoio.h`, DLPack, Python package | ✅ |
 | macOS `MTLIOCommandQueue` loading | ✅ measured |
 | CUDA kernels + pinned-staging I/O | ✅ run and verified on RTX 5090 (CUDA 12.9, sm_120); compiles with CUDA 13.0 for sm_80/90/120 |
-| `cuFile` GPUDirect Storage path | ⚠️ compiled, used only when `nvidia_fs` is loaded — **not yet exercised with real GDS** (see below) |
+| `cuFile` GPUDirect Storage path | ⚠️ compiled, used only when `nvidia_fs` is loaded — **not exercised with real GDS** (see below) |
 | NetCDF4/HDF5 | ❌ not started |
 
 ### Honest notes on the data path
@@ -86,6 +96,24 @@ templates and complex packing with missing-value management.
   (`v = scan(scan(t))` with a per-tile affine carry).
 * **Bit-exactness** is achieved by evaluating `(X·2^E + R)·10^-D` in float-float arithmetic
   (TwoSum/FMA, fast-math disabled) with `10^-D` computed exactly as ecCodes' `codes_power` does.
+
+## Verification and robustness
+
+| layer | what is checked | where |
+|---|---|---|
+| differential vs ecCodes | 99 messages: NOAA GFS, ECMWF IFS, **DWD ICON** (incl. the icosahedral grid, Template 3.101) as published, plus ecCodes re-encodings covering simple packing at 0–32 bits, D ≠ 0, constant fields, CCSDS block sizes 8/16/32/64, RSI 1–4096, no preprocessing, `AEC_PAD_RSI`, 32-bit samples, complex 5.2 and 5.3 (orders 1 and 2), missing-value management, bitmaps for every template | `crates/directgeoio-core/tests/ecc_reference.rs` |
+| complete operational files | 969,716,160 values bit-identical to ecCodes (Metal); CUDA identical to the CPU reference on 1,046,906,482 values (corpus + full files, both CCSDS walk modes) | `tools/verify_full.py`, `crates/directgeoio-cuda/tests` |
+| unsupported templates | e.g. CMC GDPS (Template 5.40 JPEG 2000): the field is listed with `supported = false`, decoding it returns `Unsupported`, other fields of the file stay usable | `ecc_reference.rs` |
+| malformed input (CPU) | deterministic mutation fuzzing (truncation, bit flips, extreme section lengths, corrupt Section 5 parameters, false point counts, splices, random payload bytes): **0 panics, 0 hangs in 2,000,000 inputs**; 200,000 run in CI. A libFuzzer target is in `fuzz/` (nightly) | `tests/fuzz_mutations.rs` |
+| malformed input (GPU) | differential fuzzing CPU ↔ GPU: both must accept/reject the same inputs and agree bit-for-bit when they accept — **0 disagreements, 0 hangs in 200,000 inputs on Metal and on CUDA (RTX 5090)**. Kernels bound every read to its section, CCSDS walks stop at the end of the data, and inconsistent bitmaps / group tables raise errors | `directgeoio-metal/tests/gpu_fuzz.rs` (CUDA: `directgeoio-cuda/tests/gpu_fuzz.rs`) |
+| exact arithmetic | Metal emulates IEEE binary64 when the float-float fast path cannot prove the float32 rounding (near ties, subnormals, overflow): emulated add/mul/conversions match native f64 on 4,194,304 edge-heavy cases. CUDA uses native binary64 | `directgeoio-metal/tests/softf64.rs` |
+| DLPack ownership | pooled output buffers are never reused while PyTorch, MLX, NumPy or a raw `DLManagedTensor` still references them (verified by draining the pool, and by injecting an ownership bug which the tests catch); repeated export does not leak; consumed capsules are not double-freed; GPU writes are visible to the host view after the consumer synchronises; concurrent decodes from 8 threads | `python/tests/test_dlpack_lifetime.py` |
+
+Benchmarks report the median and p10–p90 of N runs (`tools/bench.py`, `dgio bench`). `--cold` evicts each
+file from the page cache before every run with `posix_fadvise(DONTNEED)` (Linux, no root needed). On macOS
+no reliable unprivileged eviction was found (`msync(MS_INVALIDATE)` and `F_NOCACHE` copies stay cached), so
+Apple cold-cache numbers need `sudo purge`. Energy is not reported: CPU counters (RAPL on Linux,
+`powermetrics` on macOS) require root, and GPU-only energy would not be comparable with CPU baselines.
 
 ## Quick start (macOS, Apple Silicon)
 

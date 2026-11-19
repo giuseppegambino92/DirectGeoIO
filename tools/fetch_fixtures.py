@@ -114,6 +114,53 @@ def fetch_ecmwf(date, outdir):
     print(f"{p}: {len(sel)} msgs, {len(blob)/1e6:.1f} MB")
 
 
+DWD_EU = "https://opendata.dwd.de/weather/nwp/icon-eu/grib/00/{v}/"
+DWD_GLOBAL = "https://opendata.dwd.de/weather/nwp/icon/grib/00/{v}/"
+CMC = "https://dd.weather.gc.ca/{d}/WXO-DD/model_gdps/15km/00/000/"
+
+
+def fetch_dwd(outdir):
+    """DWD ICON (CCSDS, regular lat/lon + icosahedral grid). DWD keeps only the latest runs, so
+    the newest 00Z run listed on the server is used."""
+    import bz2
+    import re
+    def latest(url, pattern):
+        names = sorted(set(re.findall(pattern, http_get(url).decode())))
+        if not names:
+            raise SystemExit(f"DWD: nothing matching {pattern} at {url}")
+        return names[-1]
+    blobs = []
+    for v in ["t_2m", "u_10m", "pmsl", "tot_prec"]:
+        u = DWD_EU.format(v=v)
+        n = latest(u, r"icon-eu_europe_regular-lat-lon_single-level_\d{10}_006_[A-Z_0-9]+\.grib2\.bz2")
+        blobs.append(bz2.decompress(http_get(u + n)))
+    p = os.path.join(outdir, "dwd_icon_eu.grib2")
+    open(p, "wb").write(b"".join(blobs))
+    print(f"{p}: {len(blobs)} msgs")
+    u = DWD_GLOBAL.format(v="t_2m")
+    n = latest(u, r"icon_global_icosahedral_single-level_\d{10}_006_T_2M\.grib2\.bz2")
+    p = os.path.join(outdir, "dwd_icon_global_icosahedral.grib2")
+    open(p, "wb").write(bz2.decompress(http_get(u + n)))
+    print(f"{p}: 1 msg (unstructured grid)")
+
+
+def fetch_cmc(date, outdir):
+    """CMC GDPS uses Template 5.40 (JPEG 2000), which DirectGeoIO does not decode: kept as a
+    clean-rejection test case."""
+    import re
+    u = CMC.format(d=date)
+    idx = http_get(u).decode()
+    n = re.findall(r'href="([^"/?]*AirTemp_AGL-2m[^"/?]*\.grib2)"', idx)
+    if not n:
+        print("CMC: no file found, skipping")
+        return
+    d = os.path.join(os.path.dirname(outdir.rstrip("/")), "unsupported")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "cmc_gdps_jpeg2000.grib2")
+    open(p, "wb").write(http_get(u + n[0]))
+    print(f"{p}: Template 5.40 sample")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=(dt.date.today() - dt.timedelta(days=1)).strftime("%Y%m%d"))
@@ -122,6 +169,8 @@ def main():
     os.makedirs(a.outdir, exist_ok=True)
     fetch_gfs(a.date, a.outdir)
     fetch_ecmwf(a.date, a.outdir)
+    fetch_dwd(a.outdir)
+    fetch_cmc(a.date, a.outdir)
     with open(os.path.join(a.outdir, "SOURCE.txt"), "w") as f:
         f.write(f"date={a.date} run=00z step=6h\n{GFS_BASE.format(d=a.date)}\n{ECMWF_BASE.format(d=a.date)}.grib2\n")
 

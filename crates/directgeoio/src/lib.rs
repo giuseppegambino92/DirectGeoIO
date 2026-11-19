@@ -251,7 +251,8 @@ pub struct DgioFieldInfo {
     pub forecast_time: u32,
     pub ref_time: [u16; 6],
     pub centre: u16,
-    pub pad: u16,
+    pub supported: u8,
+    pub pad: u8,
     pub lat_first: f64,
     pub lon_first: f64,
     pub lat_last: f64,
@@ -378,6 +379,7 @@ pub unsafe extern "C" fn dgio_get_field_info(f: *const File, index: usize, out: 
         info.forecast_time = x.product.forecast_time;
         info.ref_time = x.ref_time;
         info.centre = x.centre;
+        info.supported = x.is_supported() as u8;
         info.lat_first = x.grid.la1 as f64 * 1e-6;
         info.lon_first = x.grid.lo1 as f64 * 1e-6;
         info.lat_last = x.grid.la2 as f64 * 1e-6;

@@ -43,3 +43,31 @@ fn cpu_decoders_match_eccodes_bit_exact() {
     }
     println!("total {total} values bit-exact vs ecCodes");
 }
+
+/// Templates DirectGeoIO does not implement (e.g. CMC GDPS JPEG 2000, Template 5.40) must be
+/// reported as `Unsupported`, never panic or produce values.
+#[test]
+fn unsupported_templates_are_rejected_cleanly() {
+    let dir = fixtures().join("unsupported");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        println!("no fixtures/unsupported (run `make fixtures`)");
+        return;
+    };
+    let mut n = 0;
+    for p in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+        let bytes = std::fs::read(&p).unwrap();
+        match scan(&bytes[..]) {
+            Ok(fields) => {
+                assert!(fields.iter().all(|f| !f.is_supported()), "expected only unsupported fields");
+                for f in &fields {
+                    let e = decode::decode_f64(f, &bytes).expect_err("unsupported template decoded");
+                    assert!(matches!(e, directgeoio_core::Error::Unsupported(_)), "{e}");
+                    println!("{}: field listed, decode rejected: {e}", p.display());
+                }
+            }
+            Err(e) => panic!("{}: wrong error kind: {e}", p.display()),
+        }
+        n += 1;
+    }
+    println!("{n} unsupported-template files rejected cleanly");
+}

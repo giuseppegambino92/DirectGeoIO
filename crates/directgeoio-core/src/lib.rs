@@ -13,5 +13,6 @@ pub mod grib2;
 pub mod npy;
 pub mod param;
 pub mod plan;
+pub mod testing;
 
 pub use grib2::{scan, ByteRange, Error, Field, Packing, Result};

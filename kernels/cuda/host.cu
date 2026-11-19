@@ -313,9 +313,9 @@ int dgc_decode(const dgc_plan* P, const DgField* fields_host, const void* raw_de
     if (P->n_complex) {
         DgParams pg = *params;
         pg.n = P->groups_len;
-        cplx_groups<<<g2(P->max_groups), T, 0, g_stream>>>(raw, fields, gref, gwid, gscan, pg);
+        cplx_groups<<<g2(P->max_groups), T, 0, g_stream>>>(raw, fields, gref, gwid, gscan, pg, status);
         if (scan(gscan, P->groups_len * 2, false, aux, err, errlen)) return -1;
-        cplx_tile_index<<<g2(P->max_groups), T, 0, g_stream>>>(fields, gscan, tiles, pg);
+        cplx_tile_index<<<g2(P->max_groups), T, 0, g_stream>>>(fields, gscan, tiles, pg, status);
         cplx_unpack<<<dim3((P->max_values + 1023) / 1024, nf, 1), 256, 0, g_stream>>>(raw, fields, gref, gwid, gscan, codes, status, pg, xraw, mvalid, tiles);
         if (P->mm_len) {
             if (scan(mvalid, P->mm_len, true, aux, err, errlen)) return -1;

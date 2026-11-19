@@ -147,6 +147,8 @@ pub enum Packing {
     Complex(Complex),
     /// Template 5.42
     Ccsds(Ccsds),
+    /// Any other data representation template (e.g. 5.40 JPEG 2000): listed, not decodable
+    Unsupported(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -171,9 +173,99 @@ pub struct Field {
     pub data: ByteRange,
 }
 
+/// Upper bound on grid points per field accepted by the decoders (≈1.07 G points = 4.3 GB of
+/// float32); larger declared sizes are treated as corrupt metadata.
+pub const MAX_POINTS: u32 = 1 << 30;
+
 impl Field {
     pub fn n_points(&self) -> u32 {
         self.grid.n_points
+    }
+
+    /// Consistency checks between Sections 3, 5, 6 and 7 that every decoder relies on. Bitmap
+    /// popcount is checked later (it needs the bitmap bytes).
+    pub fn validate(&self) -> Result<()> {
+        let bad = |m: String| Err(Error::Format(m));
+        let n = self.n_values as u64;
+        if self.grid.n_points > MAX_POINTS {
+            return bad(format!("{} grid points exceeds the {MAX_POINTS} limit", self.grid.n_points));
+        }
+        match self.bitmap {
+            Some(b) => {
+                if b.len * 8 < self.grid.n_points as u64 {
+                    return bad(format!("bitmap has {} bits for {} points", b.len * 8, self.grid.n_points));
+                }
+                if self.n_values > self.grid.n_points {
+                    return bad(format!("{} values for {} points", self.n_values, self.grid.n_points));
+                }
+            }
+            None if self.n_values != self.grid.n_points => {
+                return bad(format!("{} values for {} points and no bitmap", self.n_values, self.grid.n_points));
+            }
+            None => {}
+        }
+        if let Packing::Unsupported(t) = self.packing {
+            return Err(Error::Unsupported(format!("data representation template 5.{t}")));
+        }
+        if self.scale.nbits > 32 {
+            return bad(format!("bitsPerValue {} > 32", self.scale.nbits));
+        }
+        let nbits = self.scale.nbits as u64;
+        let data_bits = self.data.len * 8;
+        match &self.packing {
+            Packing::Unsupported(_) => unreachable!(),
+            Packing::Simple => {
+                if n * nbits > data_bits {
+                    return bad(format!("simple packing needs {} bits, Section 7 has {data_bits}", n * nbits));
+                }
+            }
+            Packing::Ccsds(c) => {
+                if nbits > 0 {
+                    if !matches!(c.block_size, 8 | 16 | 32 | 64) {
+                        return bad(format!("CCSDS block size {} (must be 8, 16, 32 or 64)", c.block_size));
+                    }
+                    if c.rsi == 0 || c.rsi > 4096 {
+                        return bad(format!("CCSDS reference sample interval {}", c.rsi));
+                    }
+                    if c.flags & AEC_DATA_SIGNED != 0 {
+                        return Err(Error::Unsupported("signed CCSDS samples".into()));
+                    }
+                }
+            }
+            Packing::Complex(c) => {
+                if c.missing_mgmt > 2 {
+                    return Err(Error::Unsupported(format!("missing value management {}", c.missing_mgmt)));
+                }
+                if c.sd_order > 2 {
+                    return Err(Error::Unsupported(format!("spatial differencing order {}", c.sd_order)));
+                }
+                if c.sd_order > 0 && !(1..=4).contains(&c.sd_octets) {
+                    return bad(format!("{} octets for spatial-differencing descriptors", c.sd_octets));
+                }
+                if c.bits_group_width > 32 || c.bits_group_length > 32 {
+                    return bad(format!("group table widths {}/{} bits", c.bits_group_width, c.bits_group_length));
+                }
+                if n > 0 && c.ngroups == 0 {
+                    return bad("complex packing with values but zero groups".into());
+                }
+                if c.ngroups as u64 > n.max(1) {
+                    return bad(format!("{} groups for {n} values", c.ngroups));
+                }
+                let ng = c.ngroups as u64;
+                let tables = (c.sd_order as u64 + 1) * c.sd_octets as u64 * (c.sd_order > 0) as u64
+                    + (ng * nbits).div_ceil(8)
+                    + (ng * c.bits_group_width as u64).div_ceil(8)
+                    + (ng * c.bits_group_length as u64).div_ceil(8);
+                if tables > self.data.len {
+                    return bad(format!("complex group tables need {tables} bytes, Section 7 has {}", self.data.len));
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Whether DirectGeoIO implements this field's data representation template.
+    pub fn is_supported(&self) -> bool {
+        !matches!(self.packing, Packing::Unsupported(_))
     }
     pub fn param(&self) -> crate::param::Param {
         crate::param::lookup(self.discipline, self.product.category, self.product.number)
@@ -212,6 +304,7 @@ pub fn scan<R: ReadAt + ?Sized>(src: &R) -> Result<Vec<Field>> {
             }
         }
         if s0[7] != 2 {
+            // GRIB1 or a stray "GRIB" string: report edition 2 only
             return Err(Error::Unsupported(format!("GRIB edition {} at offset {off}", s0[7])));
         }
         let discipline = s0[6];
@@ -263,6 +356,18 @@ fn scan_message<R: ReadAt + ?Sized>(
         let snum = h[4];
         if slen < 5 || p + slen > end {
             return Err(Error::Format(format!("section {snum} length {slen} at {p}")));
+        }
+        // minimum length of each section's fixed part (WMO FM 92 GRIB edition 2)
+        let min_len = match snum {
+            1 => 21,
+            3 => 14,
+            4 => 9,
+            5 => 11,
+            6 => 6,
+            _ => 5,
+        };
+        if slen < min_len {
+            return Err(Error::Format(format!("section {snum} at {p}: length {slen} < minimum {min_len}")));
         }
         let small = matches!(snum, 1 | 3 | 4 | 5);
         if small {
@@ -376,6 +481,9 @@ fn parse_drs(drt: u16, b: &[u8]) -> Result<(Packing, Scale)> {
             Ok(())
         }
     };
+    if !matches!(drt, 0 | 2 | 3 | 42) && b.len() < 21 {
+        return Ok((Packing::Unsupported(drt), Scale::default()));
+    }
     need(21)?;
     let scale = Scale {
         reference: f32::from_bits(be_u32(b, 11)),
@@ -383,9 +491,6 @@ fn parse_drs(drt: u16, b: &[u8]) -> Result<(Packing, Scale)> {
         d: sm_i16(b, 17),
         nbits: b[19],
     };
-    if scale.nbits > 32 {
-        return Err(Error::Unsupported(format!("bitsPerValue {}", scale.nbits)));
-    }
     let pk = match drt {
         0 => Packing::Simple,
         2 | 3 => {
@@ -407,7 +512,7 @@ fn parse_drs(drt: u16, b: &[u8]) -> Result<(Packing, Scale)> {
             need(25)?;
             Packing::Ccsds(Ccsds { flags: b[21], block_size: b[22], rsi: be_u16(b, 23) })
         }
-        x => return Err(Error::Unsupported(format!("data representation template 5.{x}"))),
+        x => Packing::Unsupported(x),
     };
     Ok((pk, scale))
 }

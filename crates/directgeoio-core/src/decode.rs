@@ -10,6 +10,10 @@ use crate::aec::{self, AecParams};
 use crate::bits::{sm_n, BitReader};
 use crate::grib2::{Complex, Error, Field, Packing, Result, Scale};
 
+fn trunc(what: &str) -> Error {
+    Error::Format(format!("{what}: Section 7 truncated"))
+}
+
 /// ecCodes `codes_power<double>(s, n)`.
 pub fn codes_power(s: i64, n: i64) -> f64 {
     let mut s = s;
@@ -84,22 +88,39 @@ pub fn complex_codes(data: &[u8], c: &Complex, nbits: u32, n: usize) -> Result<(
         minsd = sm_n(data, nb * c.sd_order as usize, nb);
         off = nb * (c.sd_order as usize + 1);
     }
+    if c.bits_group_width > 32 || c.bits_group_length > 32 || nbits > 32 || (c.sd_order > 0 && !(1..=4).contains(&nb)) {
+        return Err(Error::Format("complex packing descriptors out of range".into()));
+    }
+    if off > data.len() {
+        return Err(trunc("complex packing descriptors"));
+    }
     let mut r = BitReader::at(data, (off * 8) as u64);
     let refs: Vec<u32> = (0..ng).map(|_| r.read(nbits)).collect();
     r.align_byte();
     let widths: Vec<u32> = (0..ng).map(|_| r.read(c.bits_group_width as u32) + c.ref_group_width as u32).collect();
+    if let Some(w) = widths.iter().find(|&&w| w > 32) {
+        return Err(Error::Format(format!("complex packing group width {w} > 32 bits")));
+    }
     r.align_byte();
-    let lens: Vec<u32> = (0..ng)
-        .map(|g| {
-            let l = r.read(c.bits_group_length as u32);
-            if g + 1 == ng {
-                c.last_group_length
-            } else {
-                c.ref_group_length + l * c.length_increment as u32
-            }
-        })
-        .collect();
+    let mut lens: Vec<u32> = Vec::with_capacity(ng);
+    let mut sum = 0u64;
+    for g in 0..ng {
+        let l = r.read(c.bits_group_length as u32) as u64;
+        let len = if g + 1 == ng { c.last_group_length as u64 } else { c.ref_group_length as u64 + l * c.length_increment as u64 };
+        sum += len;
+        if sum > n as u64 {
+            return Err(Error::Format(format!("complex packing: group lengths exceed {n} values")));
+        }
+        lens.push(len as u32);
+    }
+    if sum != n as u64 {
+        return Err(Error::Format(format!("complex packing: groups sum to {sum} values, expected {n}")));
+    }
     r.align_byte();
+    let value_bits: u64 = widths.iter().zip(&lens).map(|(&w, &l)| w as u64 * l as u64).sum();
+    if r.pos() + value_bits > data.len() as u64 * 8 {
+        return Err(trunc("complex packing values"));
+    }
     let mut out = Vec::with_capacity(n);
     let mm = c.missing_mgmt;
     let mut present: Option<Vec<bool>> = (mm != 0).then(|| Vec::with_capacity(n));
@@ -124,16 +145,17 @@ pub fn complex_codes(data: &[u8], c: &Complex, nbits: u32, n: usize) -> Result<(
             total += 1;
         }
     }
-    if total != n {
-        return Err(Error::Format(format!("complex packing: groups sum to {total} values, expected {n}")));
-    }
+    debug_assert_eq!(total, n);
     let n = out.len();
     match c.sd_order {
         0 => {}
+        // modular arithmetic: identical to the GPU's uint32 scans for valid data and panic-free
+        // on corrupt descriptors
+        _ if n == 0 => {}
         1 => {
             out[0] = ival1;
             for i in 1..n {
-                out[i] += minsd + out[i - 1];
+                out[i] = out[i].wrapping_add(minsd).wrapping_add(out[i - 1]);
             }
         }
         2 => {
@@ -142,10 +164,15 @@ pub fn complex_codes(data: &[u8], c: &Complex, nbits: u32, n: usize) -> Result<(
                 out[1] = ival2;
             }
             for i in 2..n {
-                out[i] += minsd + 2 * out[i - 1] - out[i - 2];
+                out[i] = out[i].wrapping_add(minsd).wrapping_add(out[i - 1].wrapping_mul(2)).wrapping_sub(out[i - 2]);
             }
         }
         o => return Err(Error::Unsupported(format!("spatial differencing order {o}"))),
+    }
+    // Reconstructed integers are offsets from the field minimum (>= 0). They are defined modulo
+    // 2^32, exactly as the GPU computes them; for valid fields this equals ecCodes' 64-bit result.
+    for v in out.iter_mut() {
+        *v = (*v as u64 & 0xFFFF_FFFF) as i64;
     }
     Ok((out, present))
 }
@@ -159,6 +186,7 @@ pub enum Codes {
 
 /// `payload` is the Section 7 payload bytes of `f`.
 pub fn field_codes(f: &Field, payload: &[u8]) -> Result<Codes> {
+    f.validate()?;
     let n = f.n_values as usize;
     let nbits = f.scale.nbits as u32;
     Ok(match &f.packing {
@@ -175,14 +203,28 @@ pub fn field_codes(f: &Field, payload: &[u8]) -> Result<Codes> {
             let (v, m) = complex_codes(payload, c, nbits, n)?;
             Codes::I64(v, m)
         }
+        Packing::Unsupported(t) => return Err(Error::Unsupported(format!("data representation template 5.{t}"))),
     })
 }
 
 /// Expand packed values onto the full grid using the Section 6 bitmap (MSB-first, 1 = present).
-pub fn expand<T: Copy>(packed: &[T], bitmap: Option<&[u8]>, n_points: usize, missing: T) -> Vec<T> {
+/// Errors if the bitmap's set bits do not match the number of packed values.
+pub fn expand<T: Copy>(packed: &[T], bitmap: Option<&[u8]>, n_points: usize, missing: T) -> Result<Vec<T>> {
     match bitmap {
-        None => packed.to_vec(),
+        None if packed.len() == n_points => Ok(packed.to_vec()),
+        None => Err(Error::Format(format!("{} values for {n_points} points and no bitmap", packed.len()))),
         Some(bm) => {
+            if bm.len() * 8 < n_points {
+                return Err(Error::Format("bitmap shorter than the grid".into()));
+            }
+            let full = n_points / 8;
+            let mut ones: usize = bm[..full].iter().map(|b| b.count_ones() as usize).sum();
+            if n_points % 8 != 0 {
+                ones += (bm[full] >> (8 - n_points % 8)).count_ones() as usize;
+            }
+            if ones != packed.len() {
+                return Err(Error::Format(format!("bitmap marks {ones} points present, Section 5 declares {}", packed.len())));
+            }
             let mut out = Vec::with_capacity(n_points);
             let mut k = 0;
             for j in 0..n_points {
@@ -193,14 +235,17 @@ pub fn expand<T: Copy>(packed: &[T], bitmap: Option<&[u8]>, n_points: usize, mis
                     out.push(missing);
                 }
             }
-            out
+            Ok(out)
         }
     }
 }
 
 /// Decode a field to float64 on the full grid (NaN where masked). `msg` = whole file bytes.
 pub fn decode_f64(f: &Field, file: &[u8]) -> Result<Vec<f64>> {
-    let payload = &file[f.data.offset as usize..(f.data.offset + f.data.len) as usize];
+    let range = |r: crate::grib2::ByteRange| -> Result<&[u8]> {
+        file.get(r.offset as usize..(r.offset + r.len) as usize).ok_or_else(|| Error::Format("section outside the buffer".into()))
+    };
+    let payload = range(f.data)?;
     let dq = Dequant::new(&f.scale);
     let packed: Vec<f64> = match field_codes(f, payload)? {
         Codes::U32(v) => v.iter().map(|&x| dq.apply(x as f64)).collect(),
@@ -210,8 +255,11 @@ pub fn decode_f64(f: &Field, file: &[u8]) -> Result<Vec<f64>> {
             present.iter().map(|&p| if p { dq.apply(*it.next().unwrap() as f64) } else { f64::NAN }).collect()
         }
     };
-    let bm = f.bitmap.map(|b| &file[b.offset as usize..(b.offset + b.len) as usize]);
-    Ok(expand(&packed, bm, f.n_points() as usize, f64::NAN))
+    let bm = match f.bitmap {
+        Some(b) => Some(range(b)?),
+        None => None,
+    };
+    expand(&packed, bm, f.n_points() as usize, f64::NAN)
 }
 
 /// Decode a field to float32 (rounded from the ecCodes-identical float64 value).

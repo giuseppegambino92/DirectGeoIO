@@ -15,6 +15,7 @@ struct BitR {
     ulong pos;
     ulong limit;
     __device__ __forceinline__ ulong window() const {
+        if (pos >= limit) return 0; // never read past the section (+64-bit slack)
         uint i = (uint)(pos >> 5);
         ulong v = ((ulong)bswap32(w[i]) << 32) | (ulong)bswap32(w[i + 1]);
         return v << (pos & 31);
@@ -65,13 +66,24 @@ __device__ __forceinline__ uint read32_at(const uint* raw, uint byte_off, ulong 
     return (uint)((v << (p & 31)) >> 32);
 }
 
+// read32_at bounded to a section of `byte_len` bytes (0 beyond it).
+__device__ __forceinline__ uint read32_lim(const uint* raw, uint byte_off, uint byte_len, ulong bit) {
+    return bit >= (ulong)byte_len * 8 ? 0u : read32_at(raw, byte_off, bit);
+}
+
 // Register-streamed reader for the sequential CCSDS boundary walk.
 struct Stream {
     const uint* w;
-    uint widx, have, mis;
+    uint widx, have, mis, lim;
     ulong buf;
+    __device__ __forceinline__ bool exhausted() const { return widx > lim + 2; }
     __device__ __forceinline__ void refill() {
-        while (have <= 32) { buf |= (ulong)bswap32(w[widx++]) << (32 - have); have += 32; }
+        while (have <= 32) {
+            uint v = widx < lim ? bswap32(w[widx]) : 0u;
+            widx++;
+            buf |= (ulong)v << (32 - have);
+            have += 32;
+        }
     }
     __device__ __forceinline__ void consume(uint n) { buf = n >= 64 ? 0 : (buf << n); have -= n; }
     __device__ __forceinline__ ulong pos() const { return (ulong)widx * 32 - have - mis; }
@@ -97,13 +109,14 @@ struct Stream {
             refill();
             if (buf != 0) { uint lz = (uint)__clzll((long long)buf); consume(lz + 1); return acc + lz; }
             acc += have; consume(have);
+            if (exhausted()) return acc;
         }
     }
     __device__ __forceinline__ void skip_fs(uint m) {
         for (;;) {
             refill();
             uint c = (uint)__popcll(buf);
-            if (c < m) { m -= c; consume(have); continue; }
+            if (c < m) { m -= c; consume(have); if (exhausted()) return; continue; }
             ulong v = buf;
             uint p = 0;
             for (uint s = 32; s >= 1; s >>= 1) {
@@ -119,10 +132,11 @@ struct Stream {
     }
 };
 
-__device__ __forceinline__ Stream stream(const uint* raw, uint byte_off) {
+__device__ __forceinline__ Stream stream(const uint* raw, uint byte_off, uint byte_len) {
     Stream s;
     s.w = raw + (byte_off >> 2);
     s.mis = (byte_off & 3) * 8;
+    s.lim = ((byte_off & 3) + byte_len + 3) / 4;
     s.widx = 0; s.have = 0; s.buf = 0;
     s.refill();
     s.consume(s.mis);
@@ -137,6 +151,13 @@ __device__ __forceinline__ float2 two_sum(float a, float b) {
     return make_float2(s, e);
 }
 __device__ __forceinline__ float dequant(int hi, uint lo, const DgField& f, bool exact) {
+    if (exact) {
+        // NVIDIA GPUs have IEEE binary64: evaluate exactly as ecCodes does, then round to float32.
+        double bscale = __longlong_as_double((long long)(((unsigned long long)f.bscale_hi << 32) | f.bscale_lo));
+        double dscale = __longlong_as_double((long long)(((unsigned long long)f.dscale_hi_bits << 32) | f.dscale_lo_bits));
+        double x = (double)((long long)hi * 65536 + (long long)lo);
+        return __double2float_rn(__dmul_rn(__dadd_rn(__dmul_rn(x, bscale), (double)f.ref_value), dscale));
+    }
     if (!exact) {
         float x = __fadd_rn(__fmul_rn((float)hi, 65536.0f), (float)lo);
         return __fmul_rn(fmaf(x, ldexpf(1.0f, f.e), f.ref_value), f.dscale_hi);

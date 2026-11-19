@@ -4,7 +4,7 @@
 
 use crate::aec::AecParams;
 use crate::decode::codes_power;
-use crate::grib2::{Error, Field, Packing, Result, AEC_DATA_PREPROCESS, AEC_DATA_SIGNED, AEC_PAD_RSI};
+use crate::grib2::{Error, Field, Packing, Result, AEC_DATA_PREPROCESS, AEC_PAD_RSI};
 
 pub const DG_KIND_SIMPLE: u32 = 0;
 pub const DG_KIND_CCSDS: u32 = 1;
@@ -14,6 +14,7 @@ pub const DG_SCAN_TILE: u32 = 1024;
 pub const DG_SCAN_THREADS: u32 = 256;
 pub const DG_ERR_TRUNCATED: u32 = 1;
 pub const DG_ERR_GROUPS: u32 = 2;
+pub const DG_ERR_BITMAP: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,10 +57,16 @@ pub struct DgField {
     pub missing_mgmt: u32,
     pub mm_off: u32,
     pub tile_off: u32,
-    pub pad2: u32,
-    pub pad3: u32,
+    pub bscale_lo: u32,
+    pub bscale_hi: u32,
+    pub dscale_lo_bits: u32,
+    pub dscale_hi_bits: u32,
+    pub exact_slow: u32,
+    pub pad4: u32,
+    pub pad5: u32,
+    pub pad6: u32,
 }
-const _: () = assert!(std::mem::size_of::<DgField>() == 160);
+const _: () = assert!(std::mem::size_of::<DgField>() == 184);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -210,10 +217,18 @@ pub fn build(fields: &[Field], io: IoStrategy) -> Result<Plan> {
     let mut grp_off = 0u32;
     let mut descs: Vec<DgField> = Vec::with_capacity(fields.len());
     for (i, f) in fields.iter().enumerate() {
+        f.validate().map_err(|e| Error::Format(format!("field {i}: {e}")))?;
         let d = f.scale.d as i64;
         let dscale = codes_power(-d, 10);
         let hi = dscale as f32;
         let lo = (dscale - hi as f64) as f32;
+        let bscale = codes_power(f.scale.e as i64, 2);
+        // The Metal fast path evaluates in float-float; it is only valid while every intermediate
+        // stays in the normal float32 range. Otherwise every value takes the emulated-f64 path.
+        let exact_slow = !(-100..=100).contains(&(f.scale.e as i32))
+            || !(dscale > 2f64.powi(-100) && dscale < 2f64.powi(100))
+            || f.scale.reference.abs() > 1e37
+            || (f.scale.reference != 0.0 && f.scale.reference.abs() < 2f32.powi(-100));
         let mut g = DgField {
             kind: DG_KIND_SIMPLE,
             nbits: f.scale.nbits as u32,
@@ -231,6 +246,11 @@ pub fn build(fields: &[Field], io: IoStrategy) -> Result<Plan> {
             e: f.scale.e as i32,
             dscale_hi: hi,
             dscale_lo: lo,
+            bscale_lo: bscale.to_bits() as u32,
+            bscale_hi: (bscale.to_bits() >> 32) as u32,
+            dscale_lo_bits: dscale.to_bits() as u32,
+            dscale_hi_bits: (dscale.to_bits() >> 32) as u32,
+            exact_slow: exact_slow as u32,
             field_index: i as u32,
             ..Default::default()
         };
@@ -248,11 +268,9 @@ pub fn build(fields: &[Field], io: IoStrategy) -> Result<Plan> {
             return Err(Error::Format(format!("field {i}: {} values for {} points and no bitmap", f.n_values, f.grid.n_points)));
         }
         match &f.packing {
+            Packing::Unsupported(_) => unreachable!("rejected by validate"),
             Packing::Simple => {}
             Packing::Ccsds(c) => {
-                if c.flags & AEC_DATA_SIGNED != 0 {
-                    return Err(Error::Unsupported("signed CCSDS samples".into()));
-                }
                 if g.nbits == 0 {
                     g.kind = DG_KIND_SIMPLE; // constant field: every code is 0
                 } else {
