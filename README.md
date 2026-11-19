@@ -47,9 +47,7 @@ DirectGeoIO's pinned staging because that machine has no `nvidia_fs` (no true GP
 **Correctness.** Every value of both complete files — 969,716,160 grid points, including 25.7 M
 bitmap- or missing-value-masked points — is **bit-identical to `float32(ecCodes float64)`** on the
 Metal backend (`make verify-full`) and identical to the ecCodes-verified CPU reference on the CUDA
-backend (1,040,316,480 values incl. the test corpus, both CCSDS boundary-walk modes). The test corpus additionally covers Template 5.0 at 1, 5, 11, 12, 14, 19, 23, 27
-and 32 bits, CCSDS at 3, 8, 9, 11, 12, 16, 17, 21 and 24 bits, Section 6 bitmaps for all three
-templates and complex packing with missing-value management.
+backend (1,040,316,480 values incl. the test corpus, both CCSDS boundary-walk modes). See [Verification and robustness](#verification-and-robustness) for the full test matrix.
 
 ## What is (and is not) implemented
 
@@ -59,7 +57,7 @@ templates and complex packing with missing-value management.
 | Template 5.0 simple packing, 0–32 bits | ✅ CPU + Metal + CUDA |
 | Template 5.42 CCSDS 121.0-B-3 / libaec (preprocessing, SE, zero-block + ROS, uncompressed, `AEC_PAD_RSI`, restricted IDs) | ✅ unsigned samples |
 | Templates 5.2 / 5.3 complex packing, spatial differencing order 1/2, missing-value management 0/1/2 | ✅ |
-| Templates 5.40 (JPEG 2000), 5.41 (PNG), 5.50/5.51 (spectral) | ❌ rejected with a clear error |
+| Templates 5.40 (JPEG 2000), 5.41 (PNG), 5.50/5.51 (spectral) | ❌ listed per field (`supported = false`), decoding them returns `Unsupported` |
 | float32 output (bit-exact) / fast single-FMA mode (≤1 ulp) / float16 output | ✅ |
 | C ABI `include/directgeoio.h`, DLPack, Python package | ✅ |
 | macOS `MTLIOCommandQueue` loading | ✅ measured |
@@ -86,6 +84,24 @@ templates and complex packing with missing-value management.
   (`v = scan(scan(t))` with a per-tile affine carry).
 * **Bit-exactness** is achieved by evaluating `(X·2^E + R)·10^-D` in float-float arithmetic
   (TwoSum/FMA, fast-math disabled) with `10^-D` computed exactly as ecCodes' `codes_power` does.
+
+## Verification and robustness
+
+| layer | what is checked | where |
+|---|---|---|
+| differential vs ecCodes | 99 messages: NOAA GFS, ECMWF IFS, **DWD ICON** (incl. the icosahedral grid, Template 3.101) as published, plus ecCodes re-encodings covering simple packing at 0–32 bits, D ≠ 0, constant fields, CCSDS block sizes 8/16/32/64, RSI 1–4096, no preprocessing, `AEC_PAD_RSI`, 32-bit samples, complex 5.2 and 5.3 (orders 1 and 2), missing-value management, bitmaps for every template | `crates/directgeoio-core/tests/ecc_reference.rs` |
+| complete operational files | 969,716,160 values bit-identical to ecCodes (Metal); identical to the CPU reference (CUDA) | `tools/verify_full.py`, `crates/directgeoio-cuda/tests` |
+| unsupported templates | e.g. CMC GDPS (Template 5.40 JPEG 2000): the field is listed with `supported = false`, decoding it returns `Unsupported`, other fields of the file stay usable | `ecc_reference.rs` |
+| malformed input (CPU) | deterministic mutation fuzzing (truncation, bit flips, extreme section lengths, corrupt Section 5 parameters, false point counts, splices, random payload bytes): **0 panics, 0 hangs in 2,000,000 inputs**; 200,000 run in CI. A libFuzzer target is in `fuzz/` (nightly) | `tests/fuzz_mutations.rs` |
+| malformed input (GPU) | differential fuzzing CPU ↔ Metal: both must accept/reject the same inputs and agree bit-for-bit when they accept — **0 disagreements, 0 hangs in 200,000 inputs**. Kernels bound every read to its section, CCSDS walks stop at the end of the data, and inconsistent bitmaps / group tables raise errors | `directgeoio-metal/tests/gpu_fuzz.rs` (CUDA: `directgeoio-cuda/tests/gpu_fuzz.rs`) |
+| exact arithmetic | Metal emulates IEEE binary64 when the float-float fast path cannot prove the float32 rounding (near ties, subnormals, overflow): emulated add/mul/conversions match native f64 on 4,194,304 edge-heavy cases. CUDA uses native binary64 | `directgeoio-metal/tests/softf64.rs` |
+| DLPack ownership | pooled output buffers are never reused while PyTorch, MLX, NumPy or a raw `DLManagedTensor` still references them (verified by draining the pool, and by injecting an ownership bug which the tests catch); repeated export does not leak; consumed capsules are not double-freed; GPU writes are visible to the host view after the consumer synchronises; concurrent decodes from 8 threads | `python/tests/test_dlpack_lifetime.py` |
+
+Benchmarks report the median and p10–p90 of N runs (`tools/bench.py`, `dgio bench`). `--cold` evicts each
+file from the page cache before every run with `posix_fadvise(DONTNEED)` (Linux, no root needed). On macOS
+no reliable unprivileged eviction was found (`msync(MS_INVALIDATE)` and `F_NOCACHE` copies stay cached), so
+Apple cold-cache numbers need `sudo purge`. Energy is not reported: CPU counters (RAPL on Linux,
+`powermetrics` on macOS) require root, and GPU-only energy would not be comparable with CPU baselines.
 
 ## Quick start (macOS, Apple Silicon)
 

@@ -36,6 +36,7 @@ typedef int32_t dg_i32;
 /* error codes written to DgStatus.error */
 #define DG_ERR_TRUNCATED 1u
 #define DG_ERR_GROUPS 2u
+#define DG_ERR_BITMAP 3u  /* more present points than packed values */
 
 typedef struct DgField {
     dg_u32 kind, nbits, n_points, n_values;
@@ -51,8 +52,12 @@ typedef struct DgField {
     dg_u32 len_inc, last_gl, bits_gl, sd_order;
     dg_u32 sd_octets, goff_refs, goff_widths, goff_lens; /* byte offsets from data_off */
     dg_u32 goff_vals, scan2, field_index, missing_mgmt;
-    dg_u32 mm_off, tile_off, pad2, pad3; /* xraw/mvalid offset; complex tile-index offset */
-} DgField; /* 160 bytes */
+    dg_u32 mm_off, tile_off;          /* xraw/mvalid offset; complex tile-index offset */
+    dg_u32 bscale_lo, bscale_hi;       /* 2^E as computed by ecCodes, IEEE float64 bits */
+    dg_u32 dscale_lo_bits, dscale_hi_bits; /* 10^-D as computed by ecCodes, IEEE float64 bits */
+    dg_u32 exact_slow;                 /* 1: scale outside float32 range -> always emulated float64 */
+    dg_u32 pad4, pad5, pad6;
+} DgField; /* 184 bytes */
 
 typedef struct DgParams {
     dg_u32 n_fields;

@@ -12,7 +12,7 @@ extern "C" __global__ void aec_scan(const uint* raw, const DgField* fields, uint
     bool pp = (f.aec_flags & DG_AEC_PP) != 0;
     bool pad = (f.aec_flags & DG_AEC_PAD_RSI) != 0;
     ulong end_bits = (ulong)f.data_len * 8;
-    Stream r = stream(raw, f.data_off);
+    Stream r = stream(raw, f.data_off, f.data_len);
     uint2* out = cds + f.aux_off;
     uint n = 0, b = 0;
     while (b < nblocks) {
@@ -42,6 +42,7 @@ extern "C" __global__ void aec_scan(const uint* raw, const DgField* fields, uint
             b += 1;
         }
     }
+    if (r.pos() > end_bits) status[f.field_index].error = DG_ERR_TRUNCATED; // last CDS overruns Section 7
     out[n++] = make_uint2((uint)r.pos(), nblocks);
     status[f.field_index].count = n;
 }

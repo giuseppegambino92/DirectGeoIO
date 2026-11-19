@@ -94,7 +94,8 @@ typedef struct {
     uint32_t forecast_time;
     uint16_t ref_time[6];      /* Y M D h m s */
     uint16_t centre;
-    uint16_t pad;
+    uint8_t supported;         /* 0: data representation template not implemented */
+    uint8_t pad;
     double lat_first, lon_first, lat_last, lon_last, di, dj; /* degrees */
     uint64_t message_offset, message_length;
 } dgio_field_info;

@@ -1,7 +1,8 @@
 // GRIB2 Template 5.2 / 5.3 complex packing + spatial differencing — port of decode_complex.metal.
 #include "common.cuh"
 
-extern "C" __global__ void cplx_groups(const uint* raw, const DgField* fields, uint* gref, uint* gwidth, uint* gscan, DgParams P) {
+extern "C" __global__ void cplx_groups(const uint* raw, const DgField* fields, uint* gref, uint* gwidth, uint* gscan, DgParams P,
+                                       DgStatus* status) {
     const DgField& f = fields[blockIdx.y];
     uint g = blockIdx.x * blockDim.x + threadIdx.x;
     if (f.kind != DG_KIND_COMPLEX || g >= f.ngroups) return;
@@ -9,6 +10,7 @@ extern "C" __global__ void cplx_groups(const uint* raw, const DgField* fields, u
     uint ref = r.read(f.nbits);
     r = bitr(raw, f.data_off, f.data_len, (ulong)f.goff_widths * 8 + (ulong)g * f.bits_gw);
     uint w = r.read(f.bits_gw) + f.ref_gw;
+    if (w > 32) { status[f.field_index].error = DG_ERR_GROUPS; w = 32; }
     uint len;
     if (g + 1 == f.ngroups) len = f.last_gl;
     else {
@@ -32,13 +34,14 @@ __device__ __forceinline__ int sm_bytes(const unsigned char* p, uint n) {
 // Tile-parallel unpack (see decode_complex.metal).
 #define DG_CPLX_TILE 1024u
 
-extern "C" __global__ void cplx_tile_index(const DgField* fields, const uint* gscan, uint* tiles, DgParams P) {
+extern "C" __global__ void cplx_tile_index(const DgField* fields, const uint* gscan, uint* tiles, DgParams P, DgStatus* status) {
     const DgField& f = fields[blockIdx.y];
     uint g = blockIdx.x * blockDim.x + threadIdx.x;
     if (f.kind != DG_KIND_COMPLEX || g >= f.ngroups) return;
     const uint* lscan = gscan + P.n + f.aux_off;
     uint s = lscan[g] - lscan[0];
-    uint e = g + 1 < f.ngroups ? lscan[g + 1] - lscan[0] : f.n_values;
+    uint e = g + 1 < f.ngroups ? min(lscan[g + 1] - lscan[0], f.n_values) : f.n_values;
+    if (g + 1 < f.ngroups && lscan[g + 1] - lscan[0] < s) status[f.field_index].error = DG_ERR_GROUPS; // 32-bit wrap
     for (uint t = (s + DG_CPLX_TILE - 1) / DG_CPLX_TILE; t * DG_CPLX_TILE < e; t++) tiles[f.tile_off + t] = g;
 }
 extern "C" __global__ void cplx_unpack(const uint* raw, const DgField* fields, const uint* gref, const uint* gwidth,
@@ -55,10 +58,18 @@ extern "C" __global__ void cplx_unpack(const uint* raw, const DgField* fields, c
     const uint* bscan = gscan + f.aux_off;
     uint lbase = lscan[0], bbase = bscan[0];
     uint ng_all = f.ngroups;
-    if (tid == 0 && s1 == f.n_values && lscan[ng_all - 1] - lbase + f.last_gl != f.n_values)
-        status[f.field_index].error = DG_ERR_GROUPS;
+    if (tid == 0 && s1 == f.n_values) {
+        if (lscan[ng_all - 1] - lbase + f.last_gl != f.n_values) status[f.field_index].error = DG_ERR_GROUPS;
+        // packed values must fit in Section 7 (64-bit sum: corrupt widths can overflow 32 bits)
+        ulong used = (ulong)(bscan[ng_all - 1] - bbase) + (ulong)gwidth[f.aux_off + ng_all - 1] * f.last_gl;
+        if ((ulong)f.goff_vals * 8 + used > (ulong)f.data_len * 8) status[f.field_index].error = DG_ERR_TRUNCATED;
+    }
     uint g0 = tiles[f.tile_off + blockIdx.x];
     uint g1 = s1 == f.n_values ? ng_all - 1 : tiles[f.tile_off + blockIdx.x + 1];
+    if (g0 >= ng_all || g1 >= ng_all || g1 < g0) { // inconsistent group lengths (already flagged)
+        if (tid == 0) status[f.field_index].error = DG_ERR_GROUPS;
+        return;
+    }
     uint ng = min(g1 - g0 + 1, DG_CPLX_TILE);
     for (uint k = tid; k < ng; k += ntg) {
         uint g = g0 + k;
@@ -82,7 +93,7 @@ extern "C" __global__ void cplx_unpack(const uint* raw, const DgField* fields, c
         uint lo = 0, hi = ng - 1;
         while (lo < hi) { uint mid = (lo + hi + 1) >> 1; if (gstart[mid] <= i) lo = mid; else hi = mid - 1; }
         uint w = gw[lo], ref = gr[lo];
-        uint v = w ? (read32_at(raw, f.data_off, (ulong)f.goff_vals * 8 + gbit[lo] + (ulong)(i - gstart[lo]) * w) >> (32 - w)) : 0u;
+        uint v = w ? (read32_lim(raw, f.data_off, f.data_len, (ulong)f.goff_vals * 8 + gbit[lo] + (ulong)(i - gstart[lo]) * w) >> (32 - w)) : 0u;
         if (f.missing_mgmt) {
             ulong all1w = (1ull << w) - 1;
             bool miss = w > 0 ? (v == all1w || (f.missing_mgmt == 2 && v == all1w - 1))

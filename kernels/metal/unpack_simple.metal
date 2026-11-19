@@ -7,7 +7,7 @@ kernel void unpack_dequant_expand(device const uint* raw [[buffer(0)]],
                                   constant DgField* fields [[buffer(1)]],
                                   device const uint* rank [[buffer(2)]],
                                   device const uint* codes [[buffer(3)]],
-                                  device const DgStatus* status [[buffer(4)]],
+                                  device DgStatus* status [[buffer(4)]],
                                   device void* out [[buffer(5)]],
                                   constant DgParams& P [[buffer(6)]],
                                   device const uint* mvalid [[buffer(7)]],
@@ -21,12 +21,21 @@ kernel void unpack_dequant_expand(device const uint* raw [[buffer(0)]],
         uint wi = j >> 5;
         uint b = j & 31;
         uint w = read32_at(raw, f.bitmap_off, ulong(wi) * 32);
-        if (((w >> (31 - b)) & 1u) == 0) {
+        uint present = (w >> (31 - b)) & 1u;
+        idx = rank[f.rank_off + wi] - rank[f.rank_off] + (b ? popcount(w >> (32 - b)) : 0u); // exclusive rank
+        if (j + 1 == f.n_points && idx + present != f.n_values) // bitmap must mark exactly n_values points
+            status[f.field_index].error = DG_ERR_BITMAP;
+        if (!present) {
             if (P.out_half) ((device half*)out)[o] = half(P.missing);
             else ((device float*)out)[o] = P.missing;
             return;
         }
-        idx = rank[f.rank_off + wi] - rank[f.rank_off] + (b ? popcount(w >> (32 - b)) : 0u);
+    }
+    if (idx >= f.n_values) { // bitmap marks more points present than Section 5 declares
+        status[f.field_index].error = DG_ERR_BITMAP;
+        if (P.out_half) ((device half*)out)[o] = half(P.missing);
+            else ((device float*)out)[o] = P.missing;
+        return;
     }
     int hi; uint lo;
     if (f.kind == DG_KIND_SIMPLE) {
@@ -52,8 +61,8 @@ kernel void unpack_dequant_expand(device const uint* raw [[buffer(0)]],
             r = prev;
         }
         uint v = codes[f.codes_off + r]; // spatial differencing already resolved (sd_apply)
-        int x = int(v);
-        hi = x >> 16; lo = uint(x) & 0xFFFFu;
+        // complex-packed integers are offsets from the field minimum: unsigned, modulo 2^32
+        hi = int(v >> 16); lo = v & 0xFFFFu;
     }
     float y = dequant(hi, lo, f, P.exact != 0);
     if (P.out_half) ((device half*)out)[o] = half(y);

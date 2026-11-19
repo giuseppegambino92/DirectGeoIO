@@ -64,7 +64,7 @@ class _FieldInfo(ctypes.Structure):
                 ("data_template", ctypes.c_uint16), ("bits_per_value", ctypes.c_uint8), ("has_bitmap", ctypes.c_uint8),
                 ("discipline", ctypes.c_uint8), ("category", ctypes.c_uint8), ("number", ctypes.c_uint8),
                 ("level_type_code", ctypes.c_uint8), ("forecast_time", ctypes.c_uint32),
-                ("ref_time", ctypes.c_uint16 * 6), ("centre", ctypes.c_uint16), ("pad", ctypes.c_uint16),
+                ("ref_time", ctypes.c_uint16 * 6), ("centre", ctypes.c_uint16), ("supported", ctypes.c_uint8), ("pad", ctypes.c_uint8),
                 ("lat_first", ctypes.c_double), ("lon_first", ctypes.c_double), ("lat_last", ctypes.c_double),
                 ("lon_last", ctypes.c_double), ("di", ctypes.c_double), ("dj", ctypes.c_double),
                 ("message_offset", ctypes.c_uint64), ("message_length", ctypes.c_uint64)]
@@ -134,6 +134,7 @@ class FieldInfo:
     data_template: int
     bits_per_value: int
     has_bitmap: bool
+    supported: bool
     discipline: int
     category: int
     number: int
@@ -239,7 +240,7 @@ class File:
             raise _err()
         s = lambda b: b.decode(errors="replace")
         return FieldInfo(i, s(x.short_name), s(x.name), s(x.units), s(x.level_type), x.level, x.ni, x.nj,
-                         x.n_points, x.n_values, x.data_template, x.bits_per_value, bool(x.has_bitmap),
+                         x.n_points, x.n_values, x.data_template, x.bits_per_value, bool(x.has_bitmap), bool(x.supported),
                          x.discipline, x.category, x.number, x.forecast_time, tuple(x.ref_time), x.lat_first,
                          x.lon_first, x.lat_last, x.lon_last, x.di, x.dj)
 

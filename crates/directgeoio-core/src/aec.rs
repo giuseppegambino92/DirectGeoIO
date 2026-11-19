@@ -118,6 +118,9 @@ pub fn scan_cds(data: &[u8], p: &AecParams, out: &mut Vec<Cds>) -> Result<(), Ae
             b += 1;
         }
     }
+    if r.pos() > data.len() as u64 * 8 {
+        return Err(AecError("last coded data set runs past the end of Section 7".into()));
+    }
     out.push(Cds { bitpos: r.pos() as u32, block: nblocks });
     Ok(())
 }

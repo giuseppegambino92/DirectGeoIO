@@ -10,6 +10,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+static int cmpd(const void* a, const void* b) {
+    double x = *(const double*)a, y = *(const double*)b;
+    return (x > y) - (x < y);
+}
+static double pct(double* v, int n, double p) {
+    int k = (int)(p / 100.0 * n + 0.999999) - 1;
+    if (k < 0) k = 0;
+    if (k >= n) k = n - 1;
+    return v[k];
+}
+/* drop the file from the page cache (Linux, no root needed) */
+static void evict(const char* path) {
+#ifdef __linux__
+    int fd = open(path, O_RDONLY);
+    if (fd >= 0) { posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); close(fd); }
+#else
+    (void)path;
+    fprintf(stderr, "cold mode needs Linux (posix_fadvise)\n");
+    exit(2);
+#endif
+}
 
 static double now(void) {
     struct timespec t;
@@ -60,9 +84,13 @@ int main(int argc, char** argv) {
     const char* path = argv[2];
     int threads = argc > 3 ? atoi(argv[3]) : 1;
     int repeat = argc > 4 ? atoi(argv[4]) : 3;
+    int cold = argc > 5 && !strcmp(argv[5], "cold");
     double best = 1e30;
+    double samples[1024];
+    int ns = 0;
     size_t values = 0, bytes = 0;
     for (int r = 0; r < repeat; r++) {
+        if (cold) evict(path);
         double t0 = now();
         values = 0;
         if (!strcmp(mode, "st") || !strcmp(mode, "st-f32")) {
@@ -112,9 +140,13 @@ int main(int argc, char** argv) {
         }
         double dt = now() - t0;
         if (dt < best) best = dt;
+        if (ns < 1024) samples[ns++] = dt;
     }
     const char* base = strrchr(path, '/');
-    printf("{\"backend\":\"eccodes-%s%s\",\"file\":\"%s\",\"threads\":%d,\"total_s\":%.6f,\"bytes\":%zu,\"values\":%zu}\n",
-           mode, "", base ? base + 1 : path, threads, best, bytes, values);
+    qsort(samples, ns, sizeof(double), cmpd);
+    printf("{\"backend\":\"eccodes-%s\",\"file\":\"%s\",\"threads\":%d,\"total_s\":%.6f,\"median_s\":%.6f,"
+           "\"p10_s\":%.6f,\"p90_s\":%.6f,\"n\":%d,\"cold\":%s,\"bytes\":%zu,\"values\":%zu}\n",
+           mode, base ? base + 1 : path, threads, best, pct(samples, ns, 50), pct(samples, ns, 10), pct(samples, ns, 90), ns,
+           cold ? "true" : "false", bytes, values);
     return 0;
 }
