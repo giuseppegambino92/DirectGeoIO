@@ -94,12 +94,14 @@ gives an MLX array over the same memory. `np.from_dlpack(t.cpu())` is a host vie
 which is legal only because Apple GPUs share memory. All three are verified by pointer identity in the
 test-suite. Fortran and C codes such as WRF use the plain C ABI.
 
-## Results (warm page cache)
+## Results (medians; RTX 5090 warm and cold page cache)
 
 | file | machine | ecCodes 1T | ecCodes MT | DirectGeoIO | vs 1T / MT |
 |---|---|---:|---:|---:|---:|
-| ECMWF IFS 6 h step, 191 CCSDS fields, 198 M values | RTX 5090 | 831 ms | 149 ms | **40.0 ms** | 21× / 3.7× |
-| NOAA GFS f006, 743 complex-packed fields, 771 M values | RTX 5090 | 3372 ms | 807 ms | **59.0 ms** | 57× / 13.7× |
+| ECMWF IFS 6 h step, 191 CCSDS fields, 198 M values | RTX 5090, warm | 837 ms | 150 ms | **40.5 ms** | 21× / 3.7× |
+| | RTX 5090, cold | 856 ms | 181 ms | **87.6 ms** | 9.8× / 2.1× |
+| NOAA GFS f006, 743 complex-packed fields, 771 M values | RTX 5090, warm | 3365 ms | 822 ms | **60.6 ms** | 56× / 13.6× |
+| | RTX 5090, cold | 3505 ms | 900 ms | **242 ms** | 14.5× / 3.7× |
 | ECMWF IFS 6 h step | M3 Max | 1286 ms | 219 ms | **48.9 ms** | 26× / 4.5× |
 | NOAA GFS f006 | M3 Max | 4152 ms | 895 ms | **147 ms** | 28× / 6.1× |
 
@@ -111,9 +113,23 @@ is available. The CUDA backend ran correctly the first time it touched NVIDIA ha
 values, identical to the CPU reference that is itself bit-exact with ecCodes. The M3 Max numbers were
 taken while unrelated jobs loaded the machine.
 
+## Making it robust
+
+A decoder that is fast on good data is only half the job: operational systems also receive truncated
+downloads and corrupt messages. A mutation fuzzer (truncations, bit flips, extreme section lengths,
+corrupt packing parameters, false point counts) ran two million malformed files through the CPU path
+and 200,000 through each GPU backend in differential mode — CPU and GPU must accept and reject exactly
+the same inputs and agree bit-for-bit when they accept. It found real problems: a few-kilobyte corrupt
+file could make the old code allocate tens of gigabytes; a CCSDS stream of zeros could keep a GPU walk
+spinning; bitmaps with the wrong number of set bits were silently accepted on the GPU; and the
+float-float dequantisation could miss ecCodes' rounding by one ulp when a value sits within 2^-46 of a
+float32 rounding boundary. The last one is now closed with an emulated IEEE binary64 slow path on Apple
+GPUs (native binary64 on NVIDIA), taken only when the fast path cannot prove its rounding.
+
 ## What's next
 
-* Measure real GPUDirect Storage (nvidia-fs loaded) against pinned staging.
+* Parallel reads (or GPUDirect Storage on a supported GPU): cold, the 532 MB GFS file arrives at only
+  ~3.5 GB/s through a single pinned-staging stream, far below the NVMe's bandwidth.
 * Cold-cache NVMe measurements, and overlapping the CCSDS boundary walk of batch *n+1* with GPU decode
   of batch *n*.
 * JPEG 2000 (Template 5.40) and NetCDF4/HDF5 chunked reading.
